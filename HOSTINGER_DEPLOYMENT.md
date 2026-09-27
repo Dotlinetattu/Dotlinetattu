@@ -27,6 +27,7 @@ Copy the variable names from `.env.example` into Hostinger’s environment-varia
 ```text
 NEXT_PUBLIC_APP_URL=https://your-domain.com
 NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
 ADMIN_PASSWORD=
