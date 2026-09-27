@@ -1,4 +1,5 @@
--- Run this in Supabase SQL Editor
+-- Legacy prototype schema. Do not use for a new production Supabase project.
+-- For current setup, run migrations/001_core_schema.sql, then migrations 003 through 009 in order.
 
 -- 1. Create Bookings Table
 CREATE TABLE public.bookings (

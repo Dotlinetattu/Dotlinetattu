@@ -4,7 +4,7 @@ This is a server-rendered Next.js application. Deploy it as a **Node.js Web App*
 
 ## Before the first deployment
 
-1. Apply the Supabase migrations through migration `009_booking_integrity_and_payment_safety.sql`. It prevents concurrent appointment overlaps and removes the legacy public appointment-write policy.
+1. For a **new Supabase project**, run `001_core_schema.sql` first, then run migrations `003` through `009` in numeric order. Do not use the older `supabase/schema.sql` prototype. For an existing project that already has migrations `003` through `008`, apply only `009_booking_integrity_and_payment_safety.sql`. Migration `009` prevents concurrent appointment overlaps and removes the legacy public appointment-write policy.
 2. Rotate the Cloudinary API secret that was previously committed in source code. Put the replacement only in Hostinger environment variables.
 3. Set `NEXT_PUBLIC_APP_URL` to the final HTTPS domain, without a trailing slash. Never use `localhost` in production.
 4. Create a separate live PayPal app and webhook. Do not reuse Sandbox credentials.
