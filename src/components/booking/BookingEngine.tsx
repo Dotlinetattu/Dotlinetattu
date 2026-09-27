@@ -3,16 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { getBookedSlots, getBlockedDates, getOpenHours, createBooking } from "@/app/actions/bookingActions";
-import { createMidtransTransaction } from "@/app/actions/paymentActions";
+import { createInitialPaymentRequest } from "@/app/actions/paymentActions";
 import ZoomableImage from "@/components/ui/ZoomableImage";
 import { bookingSlotsForDay, DEFAULT_WEEKLY_HOURS, timeToMinutes, WEEK_DAYS, type WeeklyHours } from "@/lib/studio-hours";
-
-// Add snap to window interface
-declare global {
-  interface Window {
-    snap: any;
-  }
-}
+import { CUSTOM_DEPOSIT_PERCENT, FLASH_DEPOSIT_PERCENT, SERVICE_PRICES, calculateDeposit } from "@/lib/pricing";
 
 type FlowType = "flash" | "custom";
 type Step = "warning" | "form" | "calendar" | "checkout" | "success";
@@ -79,6 +73,8 @@ interface BookingEngineProps {
 
 export default function BookingEngine({ initialType }: BookingEngineProps) {
   const now = new Date();
+  const studioWhatsapp = (process.env.NEXT_PUBLIC_STUDIO_WHATSAPP || '').replace(/[^0-9]/g, '');
+  const whatsappUrl = (message: string) => `https://wa.me/${studioWhatsapp}?text=${encodeURIComponent(message)}`;
 
   // All state starts with defaults — localStorage will hydrate them after mount
   const [hydrated, setHydrated] = useState(false);
@@ -92,24 +88,10 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
   const [countryCode, setCountryCode] = useState("+62");
   const [countryQuery, setCountryQuery] = useState("");
   const checkoutInProgress = useRef(false);
-  const snapPopupOpen = useRef(false);
+  const [paymentProvider, setPaymentProvider] = useState<'WISE' | 'PAYPAL'>('WISE');
 
   const [calMonth, setCalMonth] = useState<number>(now.getMonth());
   const [calYear, setCalYear] = useState<number>(now.getFullYear());
-
-  // Load Midtrans snap script
-  useEffect(() => {
-    const snapScript = "https://app.sandbox.midtrans.com/snap/snap.js";
-    const clientKey = process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY;
-    if (clientKey && !document.querySelector('script[data-dotlinetattu-midtrans="true"]')) {
-      const script = document.createElement("script");
-      script.src = snapScript;
-      script.setAttribute("data-client-key", clientKey);
-      script.setAttribute("data-dotlinetattu-midtrans", "true");
-      script.async = true;
-      document.body.appendChild(script);
-    }
-  }, []);
 
   // Fetch booked slots
   useEffect(() => {
@@ -124,6 +106,8 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
       setOpenHours(hours);
     }
     fetchSlots();
+    const refreshInterval = window.setInterval(fetchSlots, 60_000);
+    return () => window.clearInterval(refreshInterval);
   }, []);
 
   const [formData, setFormData] = useState({
@@ -226,16 +210,16 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
   // Pricing Logic
   const calculatePrice = () => {
     if (type === "flash") {
-      if (formData.size === "small") return { total: 1000000, deposit: 500000, depositPercent: "50%" };
-      if (formData.size === "medium") return { total: 1750000, deposit: 875000, depositPercent: "50%" };
-      if (formData.size === "large") return { total: 2500000, deposit: 1250000, depositPercent: "50%" };
+      if (formData.size === "small") return { total: SERVICE_PRICES.flash.small, deposit: calculateDeposit(SERVICE_PRICES.flash.small, FLASH_DEPOSIT_PERCENT), depositPercent: `${FLASH_DEPOSIT_PERCENT}%` };
+      if (formData.size === "medium") return { total: SERVICE_PRICES.flash.medium, deposit: calculateDeposit(SERVICE_PRICES.flash.medium, FLASH_DEPOSIT_PERCENT), depositPercent: `${FLASH_DEPOSIT_PERCENT}%` };
+      if (formData.size === "large") return { total: SERVICE_PRICES.flash.large, deposit: calculateDeposit(SERVICE_PRICES.flash.large, FLASH_DEPOSIT_PERCENT), depositPercent: `${FLASH_DEPOSIT_PERCENT}%` };
     } else {
       // Custom session pricing
-      if (formData.size === "test_session") return { total: 10000, deposit: 10000, depositPercent: "100%" };
-      if (formData.size === "passing") return { total: 1500000, deposit: 150000, depositPercent: "10%" };
-      if (formData.size === "medium_session") return { total: 5500000, deposit: 550000, depositPercent: "10%" };
-      if (formData.size === "1day") return { total: 8500000, deposit: 850000, depositPercent: "10%" };
-      if (formData.size === "2days") return { total: 17000000, deposit: 1700000, depositPercent: "10%" };
+      if (formData.size === "passing") return { total: SERVICE_PRICES.custom.passing, deposit: calculateDeposit(SERVICE_PRICES.custom.passing, CUSTOM_DEPOSIT_PERCENT), depositPercent: `${CUSTOM_DEPOSIT_PERCENT}%` };
+      if (formData.size === "beginning") return { total: SERVICE_PRICES.custom.beginning, deposit: calculateDeposit(SERVICE_PRICES.custom.beginning, CUSTOM_DEPOSIT_PERCENT), depositPercent: `${CUSTOM_DEPOSIT_PERCENT}%` };
+      if (formData.size === "medium_session") return { total: SERVICE_PRICES.custom.medium_session, deposit: calculateDeposit(SERVICE_PRICES.custom.medium_session, CUSTOM_DEPOSIT_PERCENT), depositPercent: `${CUSTOM_DEPOSIT_PERCENT}%` };
+      if (formData.size === "1day") return { total: SERVICE_PRICES.custom['1day'], deposit: calculateDeposit(SERVICE_PRICES.custom['1day'], CUSTOM_DEPOSIT_PERCENT), depositPercent: `${CUSTOM_DEPOSIT_PERCENT}%` };
+      if (formData.size === "2days") return { total: SERVICE_PRICES.custom['2days'], deposit: calculateDeposit(SERVICE_PRICES.custom['2days'], CUSTOM_DEPOSIT_PERCENT), depositPercent: `${CUSTOM_DEPOSIT_PERCENT}%` };
     }
     return { total: 0, deposit: 0, depositPercent: "0%" };
   };
@@ -260,7 +244,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
     : selectedTime;
 
   const handleCheckout = async () => {
-    if (checkoutInProgress.current || snapPopupOpen.current) return;
+    if (checkoutInProgress.current) return;
     checkoutInProgress.current = true;
     setIsLoading(true);
     try {
@@ -298,8 +282,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
         date: selectedDate,
         time: selectedTime,
         type: type,
-        totalPrice: priceInfo.total,
-        deposit: priceInfo.deposit,
+        size: formData.size,
         design_url: designUrl,
         placement_url: placementUrl
       });
@@ -307,46 +290,15 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
       setBookingId(result.id);
       localStorage.removeItem(STORAGE_KEY); // clear draft on success
 
-      // Call Midtrans
-      const tx = await createMidtransTransaction(result.id);
-      
-      // Stop loading state before opening popup
-      setIsLoading(false);
-
-      if (window.snap && !snapPopupOpen.current) {
-        snapPopupOpen.current = true;
-        window.snap.pay(tx.token, {
-          onSuccess: function(result: any){
-            snapPopupOpen.current = false;
-            checkoutInProgress.current = false;
-            setStep("success");
-          },
-          onPending: function(result: any){
-            snapPopupOpen.current = false;
-            checkoutInProgress.current = false;
-            setStep("success");
-          },
-          onError: function(result: any){
-            snapPopupOpen.current = false;
-            checkoutInProgress.current = false;
-            alert("Payment failed! Please try again.");
-            console.error(result);
-          },
-          onClose: function(){
-            snapPopupOpen.current = false;
-            checkoutInProgress.current = false;
-            alert('You closed the popup without finishing the payment.');
-            setStep("success"); // We still consider booking created, but payment is pending.
-          }
-        });
-      } else {
-        // Fallback if script didn't load
-        checkoutInProgress.current = false;
-        window.location.href = tx.redirect_url;
-      }
+      const payment = await createInitialPaymentRequest(result.id, {
+        description: type === 'custom' ? 'Initial consultation deposit' : 'Initial tattoo deposit',
+        amount: priceInfo.deposit,
+        provider: paymentProvider,
+      });
+      if ('error' in payment || !payment.redirect_url) throw new Error(payment.error || 'Could not create the secure payment link.');
+      window.location.assign(payment.redirect_url);
     } catch (err) {
       checkoutInProgress.current = false;
-      snapPopupOpen.current = false;
       alert("Failed to create booking. Please try again.");
       console.error(err);
       setIsLoading(false);
@@ -557,21 +509,21 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                   {type === "flash" ? (
                     <select name="size" value={formData.size} onChange={handleInputChange} className="w-full bg-primary border border-border px-4 py-3 text-primary focus:border-accent outline-none font-sans">
                       <option value="small">
-                        Small (5cm - 10cm) • {String("IDR 1.000.000").split('').map(c => c + '\u0336').join('')} IDR 500.000 (DP)
+                        Small (10cm - 15cm) • {String("IDR 1.500.000").split('').map(c => c + '\u0336').join('')} IDR 750.000 (DP)
                       </option>
                       <option value="medium">
-                        Medium (11cm - 15cm) • {String("IDR 1.750.000").split('').map(c => c + '\u0336').join('')} IDR 875.000 (DP)
+                        Medium (15cm - 20cm) • {String("IDR 2.500.000").split('').map(c => c + '\u0336').join('')} IDR 1.250.000 (DP)
                       </option>
                       <option value="large">
-                        Large (16cm - 25cm+) • {String("IDR 2.500.000").split('').map(c => c + '\u0336').join('')} IDR 1.250.000 (DP)
+                        Large (20cm+) • {String("IDR 4.000.000").split('').map(c => c + '\u0336').join('')} IDR 2.000.000 (DP)
                       </option>
                     </select>
                   ) : (
                     <div className="flex flex-col gap-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {[
-                          { id: "test_session", title: "Testing Mode", desc: "For developer testing payment gateways.", price: "IDR 10.000", tag: "Test Only" },
                           { id: "passing", title: "Passing Session", desc: "1-2 hours • Small, quick tattoos under 10cm.", price: "IDR 1.500.000", tag: "Same-day consultation" },
+                          { id: "beginning", title: "Beginning Session", desc: "3 hours • Medium-sized single pieces.", price: "IDR 2.500.000", tag: "Prior consultation recommended" },
                           { id: "medium_session", title: "Medium Session", desc: "6 hours • Detailed work or multiple small pieces.", price: "IDR 5.500.000", tag: "Prior consultation required" },
                           { id: "1day", title: "1 Day Session", desc: "8 hours • Extensive custom work, half sleeves.", price: "IDR 8.500.000", tag: "Prior consultation required" },
                           { id: "2days", title: "2 Days Session", desc: "2 × 8 hours • Full sleeves, large scale tribal.", price: "IDR 17.000.000", tag: "Prior consultation required" },
@@ -651,20 +603,20 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                     <p className="text-secondary font-sans text-sm">
                       Session Total: <span className="text-primary">IDR {priceInfo.total.toLocaleString("id-ID")}</span>
                       <span className="mx-3 text-border hidden md:inline">|</span>
-                      <span className="block md:inline mt-1 md:mt-0 text-primary">Deposit to pay today: <strong>IDR {priceInfo.deposit.toLocaleString("id-ID")} (10%)</strong></span>
+                      <span className="block md:inline mt-1 md:mt-0 text-primary">Deposit to pay today: <strong>IDR {priceInfo.deposit.toLocaleString("id-ID")} ({CUSTOM_DEPOSIT_PERCENT}%)</strong></span>
                     </p>
                   )}
                 </div>
 
                 <div className="flex flex-col sm:flex-row w-full md:w-auto gap-4 shrink-0">
-                  {type === "custom" && (
+                  {type === "custom" && studioWhatsapp.length >= 8 && (
                     <button 
                       onClick={() => {
                         const text = `Hi, I'm interested in a custom tattoo.\n\nName: ${formData.name}\nEmail: ${formData.email}\nPlacement: ${formData.placementText}\nSession: ${formData.size}\n\nI have some questions before booking.`;
-                        window.open(`https://wa.me/6282339760624?text=${encodeURIComponent(text)}`, '_blank');
+                        window.open(whatsappUrl(text), '_blank');
                       }}
                       disabled={!isFormValid}
-                      className={`w-full sm:w-auto px-6 py-4 font-sans tracking-widest uppercase text-xs font-bold rounded-sm transition-all border ${isFormValid ? 'border-accent text-accent hover:bg-accent hover:text-white' : 'border-border text-secondary/50 cursor-not-allowed'}`}
+                      className={`w-full sm:w-auto px-6 py-4 font-sans tracking-widest uppercase text-xs font-bold rounded-sm transition-all border ${isFormValid ? 'border-surface bg-surface text-accent hover:border-accent hover:bg-accent hover:text-white' : 'border-zinc-900 bg-zinc-900 text-zinc-500 cursor-not-allowed'}`}
                     >
                       Ask on WhatsApp
                     </button>
@@ -672,7 +624,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                   <button 
                     onClick={() => setStep("calendar")}
                     disabled={!isFormValid}
-                    className={`w-full sm:w-auto px-6 py-4 font-sans tracking-widest uppercase text-xs font-bold rounded-sm transition-all ${isFormValid ? 'bg-accent hover:bg-accent-hover text-white' : 'bg-surface border border-border text-secondary/50 cursor-not-allowed'}`}
+                    className={`w-full sm:w-auto px-6 py-4 font-sans tracking-widest uppercase text-xs font-bold rounded-sm transition-all ${isFormValid ? 'bg-accent hover:bg-accent-hover text-white' : 'border border-zinc-900 bg-zinc-900 text-zinc-500 cursor-not-allowed'}`}
                   >
                     Pay Deposit & Book
                   </button>
@@ -930,19 +882,28 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                 </span>
               </div>
               <div className="flex items-baseline justify-between gap-6 pt-1">
-                <span className="text-secondary font-sans text-xs font-bold uppercase tracking-[0.12em]">Deposit due ({priceInfo.depositPercent})</span>
+                <span className="text-secondary font-sans text-xs font-bold uppercase tracking-[0.12em]">Deposit due ({type === "flash" ? FLASH_DEPOSIT_PERCENT : CUSTOM_DEPOSIT_PERCENT}%)</span>
                 <span className="text-accent font-heading font-bold text-xl text-right sm:text-2xl">IDR {priceInfo.deposit.toLocaleString()}</span>
               </div>
               {type === "flash" && (
                 <p className="text-secondary/60 text-xs text-right italic">
-                  Remaining 50% payable at studio.
+                  Remaining 50% payable later.
                 </p>
               )}
               {type === "custom" && (
                 <p className="text-secondary/60 text-xs text-right italic">
-                  Remaining 90% (Second Deposit & Final Payment) payable later.
+                  Remaining 90% payable later, through additional deposits or the final payment.
                 </p>
               )}
+            </div>
+
+            <div className="mb-8 border border-border bg-primary p-5 sm:p-6">
+              <p className="text-secondary font-sans text-xs font-bold uppercase tracking-[0.18em]">Choose payment method</p>
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button type="button" onClick={() => setPaymentProvider('WISE')} className={`min-h-24 border p-4 text-left transition-colors ${paymentProvider === 'WISE' ? 'border-[#2b1b13] bg-[#2b1b13] text-primary' : 'border-surface bg-surface text-secondary hover:border-[#2a1b14] hover:bg-[#2a1b14]'}`}><span className="block font-semibold">Wise transfer</span><span className="mt-1 block text-xs leading-5">Manual transfer with clear instructions. The studio confirms it after review.</span></button>
+                <button type="button" onClick={() => setPaymentProvider('PAYPAL')} className={`min-h-24 border p-4 text-left transition-colors ${paymentProvider === 'PAYPAL' ? 'border-[#003f6b] bg-[#003f6b] text-primary' : 'border-surface bg-surface text-secondary hover:border-[#003f6b] hover:bg-[#003f6b] hover:text-white'}`}><span className="block font-semibold">PayPal</span><span className="mt-1 block text-xs leading-5">Secure online checkout. Payment is confirmed automatically by PayPal.</span></button>
+              </div>
+              {paymentProvider === 'PAYPAL' && <p className="mt-4 text-xs leading-5 text-secondary">PayPal shows the USD amount before payment. The studio controls the exchange rate, so you never need to calculate it yourself.</p>}
             </div>
 
             <div className="flex flex-col gap-4">
@@ -951,7 +912,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                 disabled={isLoading}
                 className={`w-full py-4 font-sans tracking-widest uppercase text-xs font-bold transition-all ${isLoading ? 'bg-surface text-secondary cursor-not-allowed' : 'bg-accent hover:bg-accent-hover text-white'}`}
               >
-                {isLoading ? "Processing..." : type === "custom" ? "Book Consultation" : "Pay Deposit & Book"}
+                {isLoading ? "Creating payment link..." : paymentProvider === 'PAYPAL' ? "Continue to PayPal" : "Get Wise transfer instructions"}
               </button>
               <button 
                 onClick={() => setStep("calendar")}
@@ -990,8 +951,8 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                   : "Drop Jerry a message on WhatsApp to confirm your design details."
                 }
               </p>
-              <a 
-                href={`https://wa.me/6282339760624?text=${encodeURIComponent(`Hello Jerry! I just booked a ${type === "custom" ? "consultation" : "flash tattoo"} on ${selectedDate} at ${selectedTime}. My name is ${formData.name}. Order ID: ${bookingId}`)}`}
+              {studioWhatsapp.length >= 8 && <a
+                href={whatsappUrl(`Hello Jerry! I just booked a ${type === "custom" ? "consultation" : "flash tattoo"} on ${selectedDate} at ${selectedTime}. My name is ${formData.name}. Order ID: ${bookingId}`)}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center justify-center gap-3 w-full py-4 bg-accent hover:bg-accent-hover text-white font-sans tracking-widest uppercase text-xs font-bold transition-all"
@@ -1000,7 +961,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
                 </svg>
                 Message Jerry on WhatsApp
-              </a>
+              </a>}
             </div>
 
             <Link href="/" className="text-secondary/50 hover:text-secondary font-sans text-xs tracking-widest uppercase transition-colors">

@@ -13,7 +13,7 @@ type BlockedDate = {
 };
 
 const fieldClass = 'min-h-11 w-full border border-border bg-background px-3 text-sm text-primary outline-none focus:border-accent';
-const buttonClass = 'inline-flex min-h-11 cursor-pointer items-center justify-center border border-border px-4 text-sm font-medium text-primary transition-colors hover:border-accent/50 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40';
+const buttonClass = 'inline-flex min-h-11 cursor-pointer items-center justify-center border border-surface bg-surface px-4 text-sm font-medium text-primary transition-colors hover:border-[#2a1b14] hover:bg-[#2a1b14] disabled:cursor-not-allowed disabled:border-zinc-900 disabled:bg-zinc-900 disabled:text-zinc-500';
 
 export default function BlockedDatesManager({
   blockedDates,
@@ -129,7 +129,7 @@ export default function BlockedDatesManager({
         </div>
 
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <button type="button" className="min-h-11 bg-accent px-6 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-40" disabled={savingHours} onClick={saveWeeklyHours}>
+          <button type="button" className="min-h-11 bg-accent px-6 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500" disabled={savingHours} onClick={saveWeeklyHours}>
             {savingHours ? 'Saving…' : 'Save weekly hours'}
           </button>
           {hoursMessage && <p role="status" className="text-sm leading-5 text-secondary">{hoursMessage}</p>}
@@ -173,7 +173,7 @@ export default function BlockedDatesManager({
               <span className="mb-2 block text-xs uppercase tracking-wider text-secondary">Reason · optional</span>
               <input type="text" name="reason" placeholder="Holiday, guest spot, personal break…" className={fieldClass} />
             </label>
-            <button type="submit" disabled={loading} className="min-h-11 bg-accent px-6 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-40">
+            <button type="submit" disabled={loading} className="min-h-11 bg-accent px-6 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500">
               {loading ? 'Blocking…' : 'Add exception'}
             </button>
           </div>
@@ -195,7 +195,7 @@ export default function BlockedDatesManager({
               {blockedDates.length === 0 ? (
                 <tr><td colSpan={4} className="p-6 text-center text-sm text-secondary">No schedule exceptions.</td></tr>
               ) : blockedDates.map((item) => (
-                <tr key={item.id} className="border-b border-border/60">
+                <tr key={item.id} className="border-b border-border">
                   <td className="p-3 text-sm text-primary">{item.date}</td>
                   <td className="p-3 text-sm text-primary">{item.start_time && item.end_time ? `${formatTime(item.start_time)}–${formatTime(item.end_time)}` : 'Full day'}</td>
                   <td className="p-3 text-sm text-secondary">{item.reason || '—'}</td>

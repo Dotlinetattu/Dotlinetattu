@@ -226,7 +226,7 @@ export default function Home() {
               </ul>
               
               <div className="mt-10">
-                <Link href="/services" className="px-6 py-3 border border-accent text-accent hover:bg-accent hover:text-white transition-all font-sans tracking-widest uppercase text-xs font-semibold rounded-sm block text-center">
+            <Link href="/services" className="block rounded-sm border border-surface bg-surface px-6 py-3 text-center font-sans text-xs font-semibold uppercase tracking-widest text-accent transition-all hover:border-accent hover:bg-accent hover:text-white">
                   Start Custom Tattoo
                 </Link>
               </div>
@@ -237,7 +237,7 @@ export default function Home() {
               <h3 className="font-heading text-2xl text-primary mb-2 border-b border-border pb-4">
                 Flow 2: Flash Tattoo
               </h3>
-              <p className="text-secondary font-sans text-sm mb-4 font-light italic">Available sizes: 5cm - 25cm (IDR 1M - 2.5M). 50% Deposit required.</p>
+              <p className="text-secondary font-sans text-sm mb-4 font-light italic">Available sizes: 5cm - 25cm (IDR 1M - 2.5M). Flash tattoos require a 50% deposit.</p>
               <div className="bg-red-900/20 border border-red-500/30 p-3 mb-8 rounded-sm">
                 <p className="text-red-400 text-xs font-sans">
                   <strong>Note:</strong> Hand tapping is raw and traditional. It is not suitable for overly complex or modern intricate shapes. If your chosen flash is 20-30cm, we may require a consultation first.
@@ -255,15 +255,15 @@ export default function Home() {
                 <li className="flex gap-4">
                   <span className="text-accent font-heading font-bold text-xl">2.</span>
                   <div>
-                    <h4 className="text-primary font-sans font-medium mb-1">Fill Form, Pick Schedule & Pay 50%</h4>
-                    <p className="text-secondary text-sm font-light">Fill out your details, pick an available time on the calendar, and pay the 50% deposit.</p>
+                    <h4 className="text-primary font-sans font-medium mb-1">Fill Form, Pick Schedule & Pay 10%</h4>
+                    <p className="text-secondary text-sm font-light">Flash tattoos require a 50% deposit. Custom tattoos require a 10% deposit.</p>
                   </div>
                 </li>
                 <li className="flex gap-4">
                   <span className="text-accent font-heading font-bold text-xl">3.</span>
                   <div>
                     <h4 className="text-primary font-sans font-medium mb-1">Chat & Get Inked</h4>
-                    <p className="text-secondary text-sm font-light">Connect via WhatsApp from the Thank You page. Show up at the studio and pay the remaining 50%.</p>
+                    <p className="text-secondary text-sm font-light">Connect via WhatsApp from the Thank You page. The remaining balance can be requested by the studio when needed.</p>
                   </div>
                 </li>
               </ul>

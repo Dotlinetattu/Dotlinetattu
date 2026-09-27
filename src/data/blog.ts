@@ -69,7 +69,7 @@ export const blogPosts = [
 
       <h2>Why Book in Advance?</h2>
       <p>Reputable studios and artists (like Silver Jerry) are often booked weeks or months in advance. Don't rely on walk-ins for high-quality, custom work. Book your session before you even fly to Bali.</p>
-      <p>At Dotlinetattu, we require a 50% deposit to secure your slot, ensuring that both your time and our artist's preparation are respected. We recommend reaching out via WhatsApp at least a month before your arrival to discuss your design.</p>
+      <p>At Dotlinetattu, flash tattoos require a 50% deposit and custom tattoos require a 10% deposit to secure the booking, ensuring that both your time and our artist's preparation are respected. We recommend reaching out via WhatsApp at least a month before your arrival to discuss your design.</p>
     `
   }
 ];

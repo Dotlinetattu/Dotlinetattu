@@ -19,7 +19,7 @@ export default function FAQ() {
     },
     {
       question: "How does the payment and booking work?",
-      answer: "All bookings require a 50% deposit via our website to secure your slot (we accept QRIS, E-Wallets, Local Bank Transfers, and International Credit Cards). The remaining 50% is paid in cash or transfer at the studio."
+      answer: "Flash tattoos require a 50% deposit and custom tattoos require a 10% deposit via our website to secure the booking. The remaining balance is arranged through the studio&apos;s payment requests."
     },
     {
       question: "Can I bring friends to my session?",

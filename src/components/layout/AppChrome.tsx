@@ -5,6 +5,7 @@ import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import WhatsAppButton from "@/components/layout/WhatsAppButton";
 import EnterOverlay from "@/components/layout/EnterOverlay";
+import StudioAudioProvider from '@/components/layout/StudioAudio';
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -13,12 +14,12 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
   if (isAdmin) return <>{children}</>;
 
   return (
-    <>
-      <EnterOverlay />
+    <StudioAudioProvider>
+      {pathname === "/" && <EnterOverlay />}
       <Navbar />
       <main className="flex-1 flex flex-col">{children}</main>
       <Footer />
       <WhatsAppButton />
-    </>
+    </StudioAudioProvider>
   );
 }

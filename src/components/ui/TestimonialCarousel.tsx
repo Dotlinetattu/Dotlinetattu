@@ -90,7 +90,7 @@ export default function TestimonialCarousel({ testimonials }: TestimonialCarouse
       <button 
         onClick={scrollLeft}
         disabled={!canScrollLeft}
-        className="absolute left-[-20px] top-1/2 -translate-y-1/2 bg-surface border border-border text-primary p-3 rounded-full opacity-0 group-hover:opacity-100 transition-all disabled:opacity-0 hidden lg:flex items-center justify-center hover:text-accent hover:border-accent z-10 shadow-lg"
+            className="absolute left-[-20px] top-1/2 -translate-y-1/2 border border-surface bg-surface p-3 text-primary rounded-full opacity-0 group-hover:opacity-100 transition-all disabled:opacity-0 hidden lg:flex items-center justify-center hover:border-[#2a1b14] hover:bg-[#2a1b14] hover:text-accent z-10 shadow-lg"
         aria-label="Previous"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -98,7 +98,7 @@ export default function TestimonialCarousel({ testimonials }: TestimonialCarouse
       <button 
         onClick={scrollRight}
         disabled={!canScrollRight}
-        className="absolute right-[-20px] top-1/2 -translate-y-1/2 bg-surface border border-border text-primary p-3 rounded-full opacity-0 group-hover:opacity-100 transition-all disabled:opacity-0 hidden lg:flex items-center justify-center hover:text-accent hover:border-accent z-10 shadow-lg"
+        className="absolute right-[-20px] top-1/2 -translate-y-1/2 border border-surface bg-surface p-3 text-primary rounded-full opacity-0 group-hover:opacity-100 transition-all disabled:opacity-0 hidden lg:flex items-center justify-center hover:border-[#2a1b14] hover:bg-[#2a1b14] hover:text-accent z-10 shadow-lg"
         aria-label="Next"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>

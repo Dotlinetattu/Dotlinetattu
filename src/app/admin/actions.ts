@@ -4,23 +4,57 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { revalidatePath } from 'next/cache';
 import midtransClient from 'midtrans-client';
 import { Resend } from 'resend';
-import { WEEK_DAYS, timeToMinutes, type WeeklyHours } from '@/lib/studio-hours';
+import { WEEK_DAYS, normalizeWeeklyHours, timeToMinutes, type WeeklyHours } from '@/lib/studio-hours';
+import { createPaymentRequestRecord, type PaymentRequestInput } from '@/lib/payment-requests';
+import { sendPaymentStatusEmail } from '@/lib/payment-status-email';
+import { requireAdminSession } from '@/lib/require-admin';
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+async function adminOnly() {
+  return await requireAdminSession() ? null : { error: 'Unauthorized. Sign in to the studio admin first.' };
+}
+
+type AdminActionResult = {
+  success?: boolean;
+  error?: string;
+  status?: string;
+  redirect_url?: string;
+  payment?: unknown;
+};
+
+function isCalendarDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T12:00:00`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function isClockTime(value: string) {
+  if (!/^\d{2}:\d{2}$/.test(value)) return false;
+  const [hour, minute] = value.split(':').map(Number);
+  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
 }
 
 // ────────────────────────────────────────────────
 // Blocked Dates Management (existing)
 // ────────────────────────────────────────────────
 
-export async function blockDateAction(formData: FormData) {
+export async function blockDateAction(formData: FormData): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
   const date = formData.get('date') as string;
   const reason = formData.get('reason') as string;
   const start_time = formData.get('start_time') as string || null;
   const end_time = formData.get('end_time') as string || null;
 
-  if (!date) return { error: 'Date is required' };
+  if (!isCalendarDate(date)) return { error: 'Choose a valid date.' };
+  if ((start_time && !isClockTime(start_time)) || (end_time && !isClockTime(end_time))) {
+    return { error: 'Choose valid block times.' };
+  }
+  if ((start_time && !end_time) || (!start_time && end_time)) {
+    return { error: 'Provide both block times, or leave both blank for a full-day block.' };
+  }
+  if (start_time && end_time && timeToMinutes(start_time) >= timeToMinutes(end_time)) {
+    return { error: 'The block end time must be after the start time.' };
+  }
 
   const { error } = await supabaseAdmin
     .from('blocked_dates')
@@ -37,7 +71,9 @@ export async function blockDateAction(formData: FormData) {
   return { success: true };
 }
 
-export async function unblockDateAction(id: string) {
+export async function unblockDateAction(id: string): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
   const { error } = await supabaseAdmin
     .from('blocked_dates')
     .delete()
@@ -51,7 +87,9 @@ export async function unblockDateAction(id: string) {
   return { success: true };
 }
 
-export async function updateWeeklyHoursAction(hours: WeeklyHours) {
+export async function updateWeeklyHoursAction(hours: WeeklyHours): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
   for (const { key, label } of WEEK_DAYS) {
     const day = hours[key];
     if (!day || typeof day.open !== 'boolean') return { error: `${label} has invalid hours.` };
@@ -67,6 +105,28 @@ export async function updateWeeklyHoursAction(hours: WeeklyHours) {
     .from('studio_settings')
     .upsert({ key: 'open_hours', value: hours }, { onConflict: 'key' });
 
+  if (error) return { error: error.message };
+  revalidatePath('/admin');
+  revalidatePath('/booking');
+  return { success: true };
+}
+
+export async function updatePaymentSettingsAction(input: { usdPerIdr: number; holdHours: number }): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
+  if (!Number.isFinite(input.usdPerIdr) || input.usdPerIdr < 0.000001 || input.usdPerIdr > 0.01) {
+    return { error: 'Enter a valid USD per IDR rate.' };
+  }
+  if (!Number.isInteger(input.holdHours) || input.holdHours < 6 || input.holdHours > 12) {
+    return { error: 'Choose a booking hold between 6 and 12 hours.' };
+  }
+
+  const { error } = await supabaseAdmin
+    .from('studio_settings')
+    .upsert([
+      { key: 'paypal_usd_per_idr', value: input.usdPerIdr },
+      { key: 'pending_payment_hold_hours', value: input.holdHours },
+    ], { onConflict: 'key' });
   if (error) return { error: error.message };
   revalidatePath('/admin');
   revalidatePath('/booking');
@@ -90,12 +150,17 @@ async function appointmentConflict(input: AppointmentInput, excludeId?: string) 
 
   if (excludeId) query = query.neq('id', excludeId);
 
-  const [{ data: appointments, error }, { data: blocks }] = await Promise.all([
+  const [{ data: appointments, error }, { data: blocks }, { data: openHoursSetting }] = await Promise.all([
     query,
     supabaseAdmin
       .from('blocked_dates')
       .select('start_time, end_time')
       .eq('date', input.date),
+    supabaseAdmin
+      .from('studio_settings')
+      .select('value')
+      .eq('key', 'open_hours')
+      .maybeSingle(),
   ]);
 
   if (error) return 'Could not check calendar availability.';
@@ -103,6 +168,13 @@ async function appointmentConflict(input: AppointmentInput, excludeId?: string) 
   const start = timeToMinutes(input.time);
   const end = start + (Number(input.duration_hours) * 60);
   const overlaps = (itemStart: number, itemEnd: number) => start < itemEnd && end > itemStart;
+  const dayKey = WEEK_DAYS[new Date(`${input.date}T12:00:00`).getDay()].key;
+  const hours = normalizeWeeklyHours(openHoursSetting?.value)[dayKey];
+
+  if (!hours.open) return 'The studio is closed on this day.';
+  if (start < timeToMinutes(hours.start) || end > timeToMinutes(hours.end)) {
+    return `Choose a time within studio hours: ${hours.start}–${hours.end}.`;
+  }
 
   if ((appointments || []).some((appointment) => {
     const appointmentStart = timeToMinutes(appointment.time);
@@ -122,14 +194,18 @@ async function appointmentConflict(input: AppointmentInput, excludeId?: string) 
 }
 
 function validateAppointment(input: AppointmentInput) {
-  if (!input.date || !input.time) return 'Date and time are required.';
-  if (!Number.isFinite(Number(input.duration_hours)) || Number(input.duration_hours) <= 0) {
+  if (!isCalendarDate(input.date) || !isClockTime(input.time)) return 'Choose a valid date and time.';
+  if (!['consultation', 'design_review', 'tattoo_session'].includes(input.type)) return 'Choose a valid appointment type.';
+  if (!Number.isFinite(Number(input.duration_hours)) || Number(input.duration_hours) <= 0 || Number(input.duration_hours) > 16) {
     return 'Choose a valid appointment duration.';
   }
+  if ((input.notes || '').trim().length > 2_000) return 'The private note is too long.';
   return null;
 }
 
-export async function addAppointment(bookingId: string, input: AppointmentInput) {
+export async function addAppointment(bookingId: string, input: AppointmentInput): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
   const validationError = validateAppointment(input);
   if (validationError) return { error: validationError };
 
@@ -151,7 +227,9 @@ export async function addAppointment(bookingId: string, input: AppointmentInput)
   return { success: true };
 }
 
-export async function rescheduleAppointment(appointmentId: string, input: AppointmentInput) {
+export async function rescheduleAppointment(appointmentId: string, input: AppointmentInput): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
   const validationError = validateAppointment(input);
   if (validationError) return { error: validationError };
 
@@ -180,139 +258,24 @@ function escapeHtml(value: string) {
   })[character] || character);
 }
 
-export async function createPaymentRequest(
-  bookingId: string,
-  input: { description: string; amount: number; sendEmail?: boolean }
-) {
-  const amount = Math.round(Number(input.amount));
-  const description = input.description?.trim();
-  if (!description) return { error: 'Payment description is required.' };
-  if (!Number.isFinite(amount) || amount < 1000) return { error: 'Enter an amount of at least IDR 1,000.' };
-
-  const { data: booking, error } = await supabaseAdmin
-    .from('bookings')
-    .select('*')
-    .eq('id', bookingId)
-    .single();
-
-  if (error || !booking) {
-    return { error: 'Booking not found' };
-  }
-
-  try {
-    const snap = new midtransClient.Snap({
-      isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
-      serverKey: process.env.MIDTRANS_SERVER_KEY,
-    });
-
-    const orderId = `${bookingId}-${Date.now().toString(36)}`;
-    const parameter = {
-      transaction_details: {
-        order_id: orderId,
-        gross_amount: amount,
-      },
-      customer_details: {
-        first_name: booking.name,
-        email: booking.email || 'no-email@example.com',
-        phone: booking.whatsapp,
-      },
-      item_details: [{
-        id: 'DLT-PAYMENT',
-        price: amount,
-        quantity: 1,
-        name: description.substring(0, 50),
-      }],
-    };
-
-    const transaction = await snap.createTransaction(parameter);
-
-    const { data: payment, error: paymentError } = await supabaseAdmin
-      .from('payments')
-      .insert([{
-        booking_id: bookingId,
-        description,
-        amount,
-        status: 'PENDING',
-        source: 'ADMIN_REQUEST',
-        midtrans_order_id: orderId,
-        payment_link: transaction.redirect_url,
-      }])
-      .select()
-      .single();
-
-    if (paymentError) {
-      return { error: `Payment link was created, but could not be saved: ${paymentError.message}` };
-    }
-
-    let emailSent = false;
-    let emailError: string | undefined;
-    if (input.sendEmail && !process.env.RESEND_API_KEY) emailError = 'Email could not be sent because RESEND_API_KEY is not configured.';
-    if (input.sendEmail && !booking.email) emailError = 'Email could not be sent because this client has no email address.';
-    if (input.sendEmail && process.env.RESEND_API_KEY && booking.email) {
-      try {
-        const resend = new Resend(process.env.RESEND_API_KEY);
-        const fromEmail = process.env.RESEND_FROM_EMAIL || 'Dotlinetattu <onboarding@resend.dev>';
-
-        const emailResult = await resend.emails.send({
-          from: fromEmail,
-          to: booking.email,
-          subject: `Dotlinetattu - ${description}`,
-          html: `
-          <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; background-color: #111111; color: #ffffff; border-radius: 8px;">
-            <div style="text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #333333;">
-              <h1 style="margin: 0; font-size: 24px; font-weight: normal; letter-spacing: 2px; text-transform: uppercase;">Dotlinetattu</h1>
-              <p style="margin: 10px 0 0 0; font-size: 14px; color: #888888; letter-spacing: 1px;">Payment Request</p>
-            </div>
-            <p style="font-size: 16px; line-height: 1.5; color: #cccccc;">Hello ${escapeHtml(booking.name)},</p>
-            <p style="font-size: 16px; line-height: 1.5; color: #cccccc;">Jerry has sent you a payment request for <strong style="color:#ffffff">${escapeHtml(description)}</strong>.</p>
-            <div style="background-color: #1a1a1a; border-radius: 6px; padding: 20px; margin-top: 30px;">
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td style="padding: 12px 0; border-bottom: 1px solid #333333; color: #888888; font-size: 14px; width: 35%;">Order ID</td>
-                  <td style="padding: 12px 0; border-bottom: 1px solid #333333; color: #ffffff; font-size: 15px; font-weight: 500; font-family: monospace;">#DLT-${payment.id.substring(0, 8).toUpperCase()}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 12px 0; color: #888888; font-size: 14px;">Amount</td>
-                  <td style="padding: 12px 0; color: #d67b55; font-size: 15px; font-weight: bold;">IDR ${amount.toLocaleString('id-ID')}</td>
-                </tr>
-              </table>
-            </div>
-            <div style="margin-top: 40px; text-align: center;">
-              <a href="${transaction.redirect_url}" style="background-color: #ffffff; color: #000000; padding: 14px 28px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px; letter-spacing: 1px; display: inline-block;">
-                PAY DEPOSIT NOW
-              </a>
-            </div>
-            <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #333333; text-align: center;">
-              <p style="font-size: 11px; color: #666666; letter-spacing: 0.5px; text-transform: uppercase;">
-                Dotlinetattu Studio — Bali, Indonesia
-              </p>
-            </div>
-          </div>
-          `,
-        });
-        emailSent = !emailResult.error;
-        if (emailResult.error) emailError = emailResult.error.message || 'Resend rejected the email.';
-      } catch (emailException) {
-        console.error('Payment link email failed:', emailException);
-        emailError = emailException instanceof Error ? emailException.message : 'Email delivery failed.';
-      }
-    }
-
-    revalidatePath('/admin');
-    return { success: true, payment, redirect_url: transaction.redirect_url, emailSent, emailError };
-  } catch (err: unknown) {
-    console.error('Failed to create payment link:', err);
-    return { error: errorMessage(err, 'Failed to create payment link') };
-  }
+export async function createPaymentRequest(bookingId: string, input: PaymentRequestInput): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
+  const result = await createPaymentRequestRecord(bookingId, { ...input, source: 'ADMIN_REQUEST', expiresAt: undefined });
+  if ('success' in result) revalidatePath('/admin');
+  return result;
 }
 
-export async function refreshPaymentStatus(paymentId: string) {
+export async function refreshPaymentStatus(paymentId: string): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
   const { data: payment, error } = await supabaseAdmin
     .from('payments')
     .select('*')
     .eq('id', paymentId)
     .single();
   if (error || !payment) return { error: 'Payment record not found.' };
+  if (payment.provider !== 'MIDTRANS') return { error: 'This payment updates automatically through PayPal or requires Wise review.' };
   if (!payment.midtrans_order_id) return { error: 'This payment has no Midtrans order ID.' };
 
   try {
@@ -349,8 +312,28 @@ export async function refreshPaymentStatus(paymentId: string) {
   }
 }
 
-export async function resendPaymentEmail(paymentId: string) {
-  if (!process.env.RESEND_API_KEY) return { error: 'RESEND_API_KEY is not configured.' };
+export async function reviewWisePayment(paymentId: string, decision: 'approve' | 'decline', note?: string): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
+  const { data: payment, error } = await supabaseAdmin.from('payments').select('provider, status').eq('id', paymentId).single();
+  if (error || !payment) return { error: 'Payment record not found.' };
+  if (payment.provider !== 'WISE') return { error: 'Only Wise transfers need manual approval.' };
+  if (!['PENDING', 'WAITING_REVIEW', 'DECLINED'].includes(payment.status)) return { error: 'This transfer has already been finalised.' };
+  const status = decision === 'approve' ? 'APPROVED' : 'DECLINED';
+  const { error: updateError } = await supabaseAdmin
+    .from('payments')
+    .update({ status, review_note: note?.trim() || null, reviewed_at: new Date().toISOString(), paid_at: decision === 'approve' ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
+    .eq('id', paymentId);
+  if (updateError) return { error: updateError.message };
+  if (decision === 'approve') await sendPaymentStatusEmail(paymentId, 'RECEIPT');
+  revalidatePath('/admin');
+  return { success: true, status };
+}
+
+export async function resendPaymentEmail(paymentId: string): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
+  if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) return { error: 'RESEND_API_KEY and RESEND_FROM_EMAIL must be configured.' };
   const { data: payment, error: paymentError } = await supabaseAdmin.from('payments').select('*').eq('id', paymentId).single();
   if (paymentError || !payment) return { error: 'Payment record not found.' };
   const { data: booking, error: bookingError } = await supabaseAdmin.from('bookings').select('*').eq('id', payment.booking_id).single();
@@ -358,7 +341,7 @@ export async function resendPaymentEmail(paymentId: string) {
 
   try {
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'Dotlinetattu <onboarding@resend.dev>';
+    const fromEmail = process.env.RESEND_FROM_EMAIL;
     const result = await resend.emails.send({
       from: fromEmail,
       to: booking.email,
@@ -374,7 +357,9 @@ export async function resendPaymentEmail(paymentId: string) {
   }
 }
 
-export async function cancelAppointment(appointmentId: string) {
+export async function cancelAppointment(appointmentId: string): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
   const { error } = await supabaseAdmin
     .from('appointments')
     .update({ status: 'CANCELLED' })
@@ -388,7 +373,9 @@ export async function cancelAppointment(appointmentId: string) {
   return { success: true };
 }
 
-export async function completeAppointment(appointmentId: string) {
+export async function completeAppointment(appointmentId: string): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
   const { error } = await supabaseAdmin
     .from('appointments')
     .update({ status: 'COMPLETED' })
@@ -405,7 +392,9 @@ export async function completeAppointment(appointmentId: string) {
 export async function setClientStatus(
   bookingId: string,
   status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED'
-) {
+): Promise<AdminActionResult> {
+  const unauthorized = await adminOnly();
+  if (unauthorized) return unauthorized;
   const legacyStage = status === 'COMPLETED'
     ? 'COMPLETED'
     : status === 'CANCELLED'

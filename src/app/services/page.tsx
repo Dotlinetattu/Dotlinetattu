@@ -1,12 +1,13 @@
 import Link from "next/link";
+import { SERVICE_PRICES } from "@/lib/pricing";
 
 export default function Services() {
   const sessionPackages = [
-    { name: "Passing Session", desc: "For small, quick tattoos under 10cm.", duration: "1-2 hours", price: "IDR 1.000.000 / $65" },
-    { name: "Beginning Session", desc: "Perfect for medium-sized single pieces.", duration: "3 hours", price: "IDR 2.500.000 / $150" },
-    { name: "Medium Session", desc: "Detailed work or multiple small pieces.", duration: "6 hours", price: "IDR 4.500.000 / $300" },
-    { name: "1 Day Session", desc: "Extensive custom work, half sleeves.", duration: "8 hours", price: "IDR 6.500.000 / $450" },
-    { name: "2 Days Session", desc: "Full sleeves, large scale tribal pieces.", duration: "2 x 8 hours", price: "IDR 12.000.000 / $800" },
+    { name: "Passing Session", desc: "For small, quick tattoos under 10cm.", duration: "1-2 hours", price: `IDR ${SERVICE_PRICES.custom.passing.toLocaleString("id-ID")} / $85` },
+    { name: "Beginning Session", desc: "Perfect for medium-sized single pieces.", duration: "3 hours", price: `IDR ${SERVICE_PRICES.custom.beginning.toLocaleString("id-ID")} / $140` },
+    { name: "Medium Session", desc: "Detailed work or multiple small pieces.", duration: "6 hours", price: `IDR ${SERVICE_PRICES.custom.medium_session.toLocaleString("id-ID")} / $310` },
+    { name: "1 Day Session", desc: "Extensive custom work, half sleeves.", duration: "8 hours", price: `IDR ${SERVICE_PRICES.custom['1day'].toLocaleString("id-ID")} / $480` },
+    { name: "2 Days Session", desc: "Full sleeves, large scale tribal pieces.", duration: "2 x 8 hours", price: `IDR ${SERVICE_PRICES.custom['2days'].toLocaleString("id-ID")} / $955` },
   ];
 
   return (
@@ -20,7 +21,7 @@ export default function Services() {
             Tattoo Services
           </h1>
           <p className="text-secondary font-light max-w-2xl mx-auto">
-            We value your time, skin, and our craft. All bookings require a <strong className="text-primary">50% deposit</strong> to secure your slot. The remaining 50% is paid at the studio.
+            We value your time, skin, and our craft. <strong className="text-primary">Flash tattoos require a 50% deposit</strong>, while <strong className="text-primary">custom tattoos require a 10% deposit</strong> to secure the booking. The remaining balance can be paid through the studio&apos;s payment requests.
           </p>
         </div>
 
@@ -74,15 +75,15 @@ export default function Services() {
               <ul className="space-y-4">
                 <li className="flex justify-between text-secondary">
                   <span>Small (10-15cm)</span>
-                  <span className="font-mono text-accent">~ IDR 1.500.000</span>
+                  <span className="font-mono text-accent">~ IDR 1.500.000 / $85</span>
                 </li>
                 <li className="flex justify-between text-secondary">
                   <span>Medium (15-20cm)</span>
-                  <span className="font-mono text-accent">~ IDR 2.500.000</span>
+                  <span className="font-mono text-accent">~ IDR 2.500.000 / $140</span>
                 </li>
                 <li className="flex justify-between text-secondary">
                   <span>Large (20cm+)</span>
-                  <span className="font-mono text-accent">~ IDR 4.000.000+</span>
+                  <span className="font-mono text-accent">~ IDR 4.000.000+ / $225+</span>
                 </li>
               </ul>
               <p className="text-text-tertiary text-xs mt-6 italic">
@@ -92,7 +93,7 @@ export default function Services() {
 
             <Link 
               href="/booking" 
-              className="w-full text-center px-6 py-4 bg-transparent border border-accent text-accent hover:bg-accent hover:text-white transition-all font-heading font-bold tracking-widest uppercase text-sm rounded-sm"
+              className="w-full text-center px-6 py-4 bg-surface border border-surface text-accent hover:bg-accent hover:border-accent hover:text-white transition-all font-heading font-bold tracking-widest uppercase text-sm rounded-sm"
             >
               Book Flash Tattoo
             </Link>

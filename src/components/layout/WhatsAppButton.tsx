@@ -1,10 +1,11 @@
 "use client";
 
 export default function WhatsAppButton() {
-  // Using the requested WA number
-  const waNumber = "6282339760624";
+  const waNumber = (process.env.NEXT_PUBLIC_STUDIO_WHATSAPP || '').replace(/[^0-9]/g, '');
   const defaultMessage = "Hello Dotlinetattu, I would like to consult about a custom tattoo design.";
   const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(defaultMessage)}`;
+
+  if (waNumber.length < 8) return null;
 
   return (
     <a

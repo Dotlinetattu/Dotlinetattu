@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
+import { useStudioAudio } from './StudioAudio';
 
 export default function EnterOverlay() {
   const [isVisible, setIsVisible] = useState(true);
   const [isFading, setIsFading] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const { startMusic } = useStudioAudio();
 
   useEffect(() => {
     // Force scroll to top on mount
@@ -17,29 +17,15 @@ export default function EnterOverlay() {
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
 
-    // Initialize audio element once
-    audioRef.current = new Audio("https://res.cloudinary.com/workstation-/video/upload/v1788876268/bg-music.wav"); 
-    audioRef.current.loop = true;
-    audioRef.current.volume = 0.3; // 30% volume
-
     return () => {
       // Re-enable scrolling on cleanup if component is completely destroyed
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
     };
   }, []); // Empty dependency array so it doesn't re-run when state changes
 
   const handleEnter = () => {
-    if (audioRef.current) {
-      audioRef.current.play().then(() => {
-        setIsPlaying(true);
-      }).catch(error => {
-        console.warn("Audio play failed:", error);
-      });
-    }
+    void startMusic();
     
     setIsFading(true);
     // Allow animation to finish before removing from DOM
@@ -50,45 +36,8 @@ export default function EnterOverlay() {
     }, 1000); 
   };
 
-  const toggleMute = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        audioRef.current.play();
-        setIsPlaying(true);
-      }
-    }
-  };
-
   return (
     <>
-      {/* 
-        FLOATING MUSIC TOGGLE 
-        This remains on screen after the overlay fades out 
-      */}
-      {!isVisible && (
-        <button 
-          onClick={toggleMute}
-          className="fixed bottom-6 left-6 z-50 w-12 h-12 rounded-full bg-surface/80 backdrop-blur border border-border flex items-center justify-center text-accent hover:bg-surface transition-all duration-300"
-          title={isPlaying ? "Mute Music" : "Play Music"}
-        >
-          {isPlaying ? (
-            // Playing icon
-            <svg className="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-            </svg>
-          ) : (
-            // Muted icon
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-              <line x1="17" y1="7" x2="7" y2="17" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-            </svg>
-          )}
-        </button>
-      )}
-
       {/* OVERLAY SCREEN */}
       {isVisible && (
         <div 
@@ -118,7 +67,7 @@ export default function EnterOverlay() {
 
             <button 
               onClick={handleEnter}
-              className="group relative px-10 py-4 overflow-hidden rounded-sm border border-white/20 bg-transparent hover:border-accent transition-colors duration-500"
+              className="group relative px-10 py-4 overflow-hidden rounded-sm border border-transparent bg-transparent hover:border-accent hover:bg-accent transition-colors duration-500"
             >
               <div className="absolute inset-0 bg-accent/10 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-500 ease-in-out"></div>
               <span className="relative z-10 font-sans tracking-[0.3em] uppercase text-sm group-hover:text-accent transition-colors duration-500">

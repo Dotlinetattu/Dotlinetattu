@@ -39,7 +39,7 @@ export default function Gallery() {
               className={`px-6 py-2 rounded-full font-heading tracking-widest uppercase text-xs transition-all duration-300 border ${
                 activeCategory === cat 
                   ? "bg-accent border-accent text-white" 
-                  : "bg-transparent border-border text-secondary hover:border-accent hover:text-primary"
+                  : "bg-surface border-surface text-secondary hover:bg-[#2a1b14] hover:border-[#2a1b14] hover:text-primary"
               }`}
             >
               {cat}
@@ -94,7 +94,7 @@ export default function Gallery() {
               type="button"
               onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
               disabled={currentPage === 1}
-              className="border border-border px-4 py-2 text-xs font-semibold uppercase tracking-widest text-secondary transition-colors hover:border-accent hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+              className="border border-surface bg-surface px-4 py-2 text-xs font-semibold uppercase tracking-widest text-secondary transition-colors hover:border-[#2a1b14] hover:bg-[#2a1b14] hover:text-primary disabled:cursor-not-allowed disabled:border-zinc-900 disabled:bg-zinc-900 disabled:text-zinc-500"
             >
               Previous
             </button>
@@ -103,7 +103,7 @@ export default function Gallery() {
               type="button"
               onClick={() => setCurrentPage((page) => Math.min(pageCount, page + 1))}
               disabled={currentPage === pageCount}
-              className="border border-border px-4 py-2 text-xs font-semibold uppercase tracking-widest text-secondary transition-colors hover:border-accent hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+              className="border border-surface bg-surface px-4 py-2 text-xs font-semibold uppercase tracking-widest text-secondary transition-colors hover:border-[#2a1b14] hover:bg-[#2a1b14] hover:text-primary disabled:cursor-not-allowed disabled:border-zinc-900 disabled:bg-zinc-900 disabled:text-zinc-500"
             >
               Next
             </button>

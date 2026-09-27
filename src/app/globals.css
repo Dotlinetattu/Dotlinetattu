@@ -13,7 +13,7 @@
   --accent-orange: #b85c38; /* Terracotta / Rust */
   --accent-orange-hover: #8f4528;
   
-  --border-dim: rgba(184, 92, 56, 0.15); /* Subtle rust border */
+  --border-dim: #3b2a23; /* Solid dark rust border */
 }
 
 @theme inline {
@@ -56,7 +56,7 @@ body {
   .text-balance { text-wrap: balance; }
   
   .glass-panel {
-    background: rgba(24, 21, 20, 0.7);
+    background: #181514;
     backdrop-filter: blur(12px);
     border: 1px solid var(--border-dim);
   }
