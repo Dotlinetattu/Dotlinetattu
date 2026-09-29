@@ -70,7 +70,9 @@ export function bookingSlotsForDay(hours: DayHours) {
   const slots: string[] = [];
 
   for (let minute = start; minute + 60 <= end; minute += 60) {
-    slots.push(`${minutesToTime(minute)}:00`);
+    // Booking actions accept canonical HH:mm values. Appending seconds here
+    // made every calendar choice fail server-side validation as HH:mm:ss.
+    slots.push(minutesToTime(minute));
   }
 
   return slots;
