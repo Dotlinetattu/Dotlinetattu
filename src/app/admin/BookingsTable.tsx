@@ -205,7 +205,7 @@ export default function BookingsTable({ bookings, appointments, payments, adjust
     duration_hours: 1,
     notes: '',
   });
-  const [paymentForm, setPaymentForm] = useState({ description: 'Tattoo session deposit', amount: '', provider: 'WISE' as 'WISE' | 'PAYPAL', providerAmount: '', paymentKind: 'DEPOSIT' as 'DEPOSIT' | 'BALANCE_PAYMENT' | 'ADDITIONAL_CHARGE', appointmentId: '' });
+  const [paymentForm, setPaymentForm] = useState({ description: 'Tattoo session deposit', amount: '', provider: 'PAYPAL' as const, providerAmount: '', paymentKind: 'DEPOSIT' as 'DEPOSIT' | 'BALANCE_PAYMENT' | 'ADDITIONAL_CHARGE', appointmentId: '' });
 
   const selected = bookings.find((booking) => booking.id === selectedId) || null;
   const appointmentGuide = APPOINTMENT_GUIDANCE[appointmentForm.type];
@@ -378,7 +378,7 @@ export default function BookingsTable({ bookings, appointments, payments, adjust
         text: 'Payment link created. It is ready to share on WhatsApp.',
       });
       setPanel(null);
-      setPaymentForm({ description: 'Tattoo session deposit', amount: '', provider: 'WISE', providerAmount: '', paymentKind: 'DEPOSIT', appointmentId: '' });
+      setPaymentForm({ description: 'Tattoo session deposit', amount: '', provider: 'PAYPAL', providerAmount: '', paymentKind: 'DEPOSIT', appointmentId: '' });
     });
   };
 
@@ -547,10 +547,10 @@ export default function BookingsTable({ bookings, appointments, payments, adjust
                   <div className="space-y-4">
                     <Field label="What is this payment for?"><input className={inputClass} value={paymentForm.description} onChange={(event) => setPaymentForm({ ...paymentForm, description: event.target.value })} placeholder="Tattoo session deposit" /></Field>
                     <Field label="Amount · IDR"><input className={inputClass} type="number" min="1000" step="1000" inputMode="numeric" value={paymentForm.amount} onChange={(event) => setPaymentForm({ ...paymentForm, amount: event.target.value })} placeholder="2500000" /></Field>
-                    <div className="grid gap-4 sm:grid-cols-2"><Field label="Payment method"><select className={inputClass} value={paymentForm.provider} onChange={(event) => setPaymentForm({ ...paymentForm, provider: event.target.value as 'WISE' | 'PAYPAL' })}><option value="WISE">Wise · manual transfer</option><option value="PAYPAL">PayPal · automatic checkout</option></select></Field><Field label="Payment type"><select className={inputClass} value={paymentForm.paymentKind} onChange={(event) => setPaymentForm({ ...paymentForm, paymentKind: event.target.value as typeof paymentForm.paymentKind })}><option value="DEPOSIT">Deposit</option><option value="BALANCE_PAYMENT">Balance payment</option><option value="ADDITIONAL_CHARGE">Additional charge · adds to total</option></select></Field></div>
-                    {paymentForm.provider === 'PAYPAL' && <Field label="PayPal amount · USD"><input className={inputClass} type="number" min="0.01" step="0.01" inputMode="decimal" value={paymentForm.providerAmount} onChange={(event) => setPaymentForm({ ...paymentForm, providerAmount: event.target.value })} placeholder="Automatic from studio rate" /><p className="mt-2 text-xs leading-5 text-secondary">Optional. Leave blank to calculate automatically from the rate saved in Payment controls.</p></Field>}
+                    <div className="grid gap-4 sm:grid-cols-2"><Field label="Payment method"><div className={`${inputClass} flex items-center`}>PayPal · automatic checkout</div></Field><Field label="Payment type"><select className={inputClass} value={paymentForm.paymentKind} onChange={(event) => setPaymentForm({ ...paymentForm, paymentKind: event.target.value as typeof paymentForm.paymentKind })}><option value="DEPOSIT">Deposit</option><option value="BALANCE_PAYMENT">Balance payment</option><option value="ADDITIONAL_CHARGE">Additional charge · adds to total</option></select></Field></div>
+                    <Field label="PayPal amount · USD"><input className={inputClass} type="number" min="0.01" step="0.01" inputMode="decimal" value={paymentForm.providerAmount} onChange={(event) => setPaymentForm({ ...paymentForm, providerAmount: event.target.value })} placeholder="Automatic from studio rate" /><p className="mt-2 text-xs leading-5 text-secondary">Optional. Leave blank to calculate automatically from the rate saved in Payment controls.</p></Field>
                     <Field label="Linked appointment · optional"><select className={inputClass} value={paymentForm.appointmentId} onChange={(event) => setPaymentForm({ ...paymentForm, appointmentId: event.target.value })}><option value="">Not linked to one appointment</option>{appointmentsFor(selected.id).map((appointment) => <option key={appointment.id} value={appointment.id}>{APPOINTMENT_LABELS[appointment.type] || appointment.type} · {formatDate(appointment.date)}</option>)}</select></Field>
-                    <p className="text-xs leading-5 text-secondary">Wise stays pending until you approve the transfer. PayPal is confirmed by PayPal after checkout. An additional charge increases the client&apos;s final total.</p>
+                    <p className="text-xs leading-5 text-secondary">PayPal is confirmed after checkout. An additional charge increases the client&apos;s final total.</p>
                   </div>
                   <button type="button" className={`${primaryButton} mt-5 w-full`} disabled={isPending || !paymentForm.description || !paymentForm.amount} onClick={submitPayment}>{isPending ? 'Creating secure link…' : 'Create secure payment link'}</button>
                 </ActionPanel>
@@ -582,7 +582,7 @@ export default function BookingsTable({ bookings, appointments, payments, adjust
               <section aria-labelledby="payments-title">
                 <SectionTitle id="payments-title" eyebrow="Money" title="Payment requests" />
                 <div className="space-y-2">
-                  {!paymentsReady ? <Empty text="Run migration 006 to activate Wise and PayPal payment requests." /> : paymentsFor(selected.id).length === 0 ? <Empty text="No payment requests yet." /> : paymentsFor(selected.id).map((payment) => {
+                  {!paymentsReady ? <Empty text="Run migration 006 to activate payment requests." /> : paymentsFor(selected.id).length === 0 ? <Empty text="No payment requests yet." /> : paymentsFor(selected.id).map((payment) => {
                     const displayStatus = payment.status === 'PENDING' && selected.status === 'PAID' && payment.source === 'INITIAL_BOOKING' ? 'PAID' : payment.status;
                     return <div key={payment.id} className="grid gap-4 border border-border bg-surface p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                       <div className="min-w-0"><p className="break-words font-medium text-primary">{payment.description}</p><p className="mt-1 font-mono text-sm text-secondary">{money(payment.amount)}{payment.provider === 'PAYPAL' && payment.provider_amount ? ` · USD ${Number(payment.provider_amount).toFixed(2)}` : ''}</p><p className="mt-1 text-xs uppercase tracking-wider text-secondary">{payment.provider || 'MIDTRANS'} · {(payment.payment_kind || 'DEPOSIT').replaceAll('_', ' ')}</p>{payment.transfer_reference && <p className="mt-2 break-words text-xs text-secondary">Wise reference: {payment.transfer_reference}</p>}</div>

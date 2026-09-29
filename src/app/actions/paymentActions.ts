@@ -6,7 +6,7 @@ import { getPaymentSettings, usdFromIdr } from '@/lib/payment-settings';
 
 export async function createInitialPaymentRequest(
   bookingId: string,
-  input: { description: string; amount: number; provider: 'WISE' | 'PAYPAL' }
+  input: { description: string; amount: number; provider: 'PAYPAL' }
 ) {
   const failAndRelease = async (error: string) => {
     await releaseUnpaidInitialBooking(bookingId);
@@ -26,10 +26,8 @@ export async function createInitialPaymentRequest(
     return failAndRelease('The booking deposit is invalid. Please start the booking again.');
   }
   const settings = await getPaymentSettings();
-  const providerAmount = input.provider === 'PAYPAL'
-    ? usdFromIdr(amount, settings.usdPerIdr)
-    : undefined;
-  if (input.provider === 'PAYPAL' && !Number.isFinite(providerAmount)) {
+  const providerAmount = usdFromIdr(amount, settings.usdPerIdr);
+  if (!Number.isFinite(providerAmount)) {
     return failAndRelease('PayPal is not available for new bookings yet. The studio needs to set a USD conversion rate first.');
   }
   const expiresAt = new Date(Date.now() + (settings.holdHours * 60 * 60 * 1000)).toISOString();

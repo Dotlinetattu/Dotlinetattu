@@ -23,7 +23,7 @@ export default function PaymentSettingsManager({ initialUsdPerIdr, initialHoldHo
     <div className="border-b border-border pb-5">
       <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">Payment controls</p>
       <h2 id="payment-settings-title" className="mt-1 font-heading text-2xl text-primary">PayPal rate &amp; booking hold</h2>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-secondary">The rate is locked into each new PayPal link. An unpaid first booking holds its chosen time only until the deadline. A Wise payment that has a submitted reference stays reserved for studio review.</p>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-secondary">The rate is locked into each new PayPal link. An unpaid first booking holds its chosen time only until the deadline.</p>
     </div>
     <div className="mt-5 grid gap-4 md:grid-cols-2">
       <label className="block"><span className="mb-2 block text-xs uppercase tracking-wider text-secondary">USD per IDR</span><input className={inputClass} type="number" min="0.000001" max="0.01" step="0.0000001" inputMode="decimal" value={usdPerIdr} onChange={(event) => setUsdPerIdr(event.target.value)} /><span className="mt-2 block text-xs leading-5 text-secondary">Example: 0.0000615. Used to calculate the USD amount for new PayPal links.</span></label>

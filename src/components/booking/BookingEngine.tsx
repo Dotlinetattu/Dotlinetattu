@@ -88,7 +88,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
   const [countryCode, setCountryCode] = useState("+62");
   const [countryQuery, setCountryQuery] = useState("");
   const checkoutInProgress = useRef(false);
-  const [paymentProvider, setPaymentProvider] = useState<'WISE' | 'PAYPAL'>('WISE');
+  const paymentProvider = 'PAYPAL' as const;
 
   const [calMonth, setCalMonth] = useState<number>(now.getMonth());
   const [calYear, setCalYear] = useState<number>(now.getFullYear());
@@ -905,12 +905,9 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
             </div>
 
             <div className="mb-8 border border-border bg-primary p-5 sm:p-6">
-              <p className="text-secondary font-sans text-xs font-bold uppercase tracking-[0.18em]">Choose payment method</p>
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <button type="button" onClick={() => setPaymentProvider('WISE')} className={`min-h-24 border p-4 text-left transition-colors ${paymentProvider === 'WISE' ? 'border-[#2b1b13] bg-[#2b1b13] text-primary' : 'border-surface bg-surface text-secondary hover:border-[#2a1b14] hover:bg-[#2a1b14]'}`}><span className="block font-semibold">Wise transfer</span><span className="mt-1 block text-xs leading-5">Manual transfer with clear instructions. The studio confirms it after review.</span></button>
-                <button type="button" onClick={() => setPaymentProvider('PAYPAL')} className={`min-h-24 border p-4 text-left transition-colors ${paymentProvider === 'PAYPAL' ? 'border-[#003f6b] bg-[#003f6b] text-primary' : 'border-surface bg-surface text-secondary hover:border-[#003f6b] hover:bg-[#003f6b] hover:text-white'}`}><span className="block font-semibold">PayPal</span><span className="mt-1 block text-xs leading-5">Secure online checkout. Payment is confirmed automatically by PayPal.</span></button>
-              </div>
-              {paymentProvider === 'PAYPAL' && <p className="mt-4 text-xs leading-5 text-secondary">PayPal shows the USD amount before payment. The studio controls the exchange rate, so you never need to calculate it yourself.</p>}
+              <p className="text-secondary font-sans text-xs font-bold uppercase tracking-[0.18em]">Payment method</p>
+              <div className="mt-4 min-h-24 border border-[#003f6b] bg-[#003f6b] p-4 text-left text-primary"><span className="block font-semibold">PayPal</span><span className="mt-1 block text-xs leading-5">Secure online checkout. Payment is confirmed automatically by PayPal.</span></div>
+              <p className="mt-4 text-xs leading-5 text-secondary">PayPal shows the USD amount before payment. The studio controls the exchange rate, so you never need to calculate it yourself.</p>
             </div>
 
             <div className="flex flex-col gap-4">
@@ -919,7 +916,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                 disabled={isLoading}
                 className={`w-full py-4 font-sans tracking-widest uppercase text-xs font-bold transition-all ${isLoading ? 'bg-surface text-secondary cursor-not-allowed' : 'bg-accent hover:bg-accent-hover text-white'}`}
               >
-                {isLoading ? "Creating payment link..." : paymentProvider === 'PAYPAL' ? "Continue to PayPal" : "Get Wise transfer instructions"}
+                {isLoading ? "Creating payment link..." : "Continue to PayPal"}
               </button>
               <button 
                 onClick={() => setStep("calendar")}

@@ -18,20 +18,14 @@ export async function createPaymentRequestRecord(bookingId: string, input: Payme
   const description = input.description?.trim();
   if (!description) return { error: 'Payment description is required.' };
   if (!Number.isFinite(amount) || amount < 1000) return { error: 'Enter an amount of at least IDR 1,000.' };
-  if (!['WISE', 'PAYPAL'].includes(input.provider)) return { error: 'Choose Wise or PayPal.' };
+  if (input.provider !== 'PAYPAL') return { error: 'PayPal is the only payment method currently available.' };
   if (!['DEPOSIT', 'BALANCE_PAYMENT', 'ADDITIONAL_CHARGE'].includes(input.paymentKind)) return { error: 'Choose a valid payment type.' };
-  if (input.provider === 'WISE' && (!process.env.WISE_RECIPIENT_NAME || !process.env.WISE_ACCOUNT_DETAILS)) {
-    return { error: 'Wise transfer details are not configured yet.' };
-  }
-
   const requestedProviderAmount = input.providerAmount === undefined ? null : Number(input.providerAmount);
-  const settings = input.provider === 'PAYPAL' ? await getPaymentSettings() : null;
-  const providerAmount = input.provider === 'PAYPAL'
-    ? requestedProviderAmount !== null && Number.isFinite(requestedProviderAmount) && requestedProviderAmount >= 0.01
-      ? requestedProviderAmount
-      : usdFromIdr(amount, settings!.usdPerIdr)
-    : null;
-  if (input.provider === 'PAYPAL' && (typeof providerAmount !== 'number' || !Number.isFinite(providerAmount) || providerAmount < 0.01)) {
+  const settings = await getPaymentSettings();
+  const providerAmount = requestedProviderAmount !== null && Number.isFinite(requestedProviderAmount) && requestedProviderAmount >= 0.01
+    ? requestedProviderAmount
+    : usdFromIdr(amount, settings.usdPerIdr);
+  if (typeof providerAmount !== 'number' || !Number.isFinite(providerAmount) || providerAmount < 0.01) {
     return { error: 'Enter a valid PayPal amount in USD.' };
   }
 
@@ -78,7 +72,7 @@ export async function createPaymentRequestRecord(bookingId: string, input: Payme
         source: input.source || 'ADMIN_REQUEST',
         provider: input.provider,
         provider_amount: providerAmount,
-        provider_currency: input.provider === 'PAYPAL' ? 'USD' : 'IDR',
+        provider_currency: 'USD',
         payment_kind: input.paymentKind,
         appointment_id: input.appointmentId || null,
         adjustment_id: adjustmentId,
