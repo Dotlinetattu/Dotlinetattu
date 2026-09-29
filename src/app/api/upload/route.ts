@@ -6,10 +6,32 @@ const ACCEPTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 function uploadConfigured() {
   return Boolean(
-    process.env.CLOUDINARY_CLOUD_NAME
-    && process.env.CLOUDINARY_API_KEY
-    && process.env.CLOUDINARY_API_SECRET,
+    process.env.CLOUDINARY_URL
+    || (
+      process.env.CLOUDINARY_CLOUD_NAME
+      && process.env.CLOUDINARY_API_KEY
+      && process.env.CLOUDINARY_API_SECRET
+    ),
   );
+}
+
+function configureCloudinary() {
+  // Cloudinary documents CLOUDINARY_URL as its recommended configuration.
+  // Prefer it when present so the cloud name, API key, and secret always belong
+  // to the same credential pair. The three individual variables remain a fallback.
+  if (process.env.CLOUDINARY_URL) {
+    cloudinary.config(true);
+  } else {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true,
+    });
+  }
+
+  const { cloud_name, api_key, api_secret } = cloudinary.config();
+  return Boolean(cloud_name && api_key && api_secret);
 }
 
 export async function POST(request: Request) {
@@ -31,12 +53,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Image must be 8 MB or smaller.' }, { status: 413 });
     }
 
-    cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-      secure: true,
-    });
+    if (!configureCloudinary()) {
+      return NextResponse.json({ error: 'Image upload is not configured.' }, { status: 503 });
+    }
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
@@ -57,7 +76,6 @@ export async function POST(request: Request) {
     return NextResponse.json(uploadResult);
   } catch (error: unknown) {
     console.error('Upload error:', error);
-    const message = error instanceof Error ? error.message : 'Upload failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Image upload failed. Check Cloudinary server configuration.' }, { status: 500 });
   }
 }

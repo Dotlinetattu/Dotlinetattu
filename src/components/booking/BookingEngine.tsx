@@ -256,10 +256,10 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
         const uploadData = new FormData();
         uploadData.append('file', formData.referenceImage);
         const res = await fetch('/api/upload', { method: 'POST', body: uploadData });
-        if (res.ok) {
-          const json = await res.json();
-          designUrl = json.secure_url;
-        }
+        if (!res.ok) throw new Error('Reference image upload failed. Please try again.');
+        const json = await res.json();
+        if (!json.secure_url) throw new Error('Reference image upload failed. Please try again.');
+        designUrl = json.secure_url;
       }
 
       // Upload Placement Image
@@ -267,10 +267,10 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
         const uploadData = new FormData();
         uploadData.append('file', formData.placementImage);
         const res = await fetch('/api/upload', { method: 'POST', body: uploadData });
-        if (res.ok) {
-          const json = await res.json();
-          placementUrl = json.secure_url;
-        }
+        if (!res.ok) throw new Error('Body placement photo upload failed. Please try again.');
+        const json = await res.json();
+        if (!json.secure_url) throw new Error('Body placement photo upload failed. Please try again.');
+        placementUrl = json.secure_url;
       }
 
       const result = await createBooking({
@@ -299,7 +299,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
       window.location.assign(payment.redirect_url);
     } catch (err) {
       checkoutInProgress.current = false;
-      alert("Failed to create booking. Please try again.");
+      alert(err instanceof Error ? err.message : "Failed to create booking. Please try again.");
       console.error(err);
       setIsLoading(false);
     }
