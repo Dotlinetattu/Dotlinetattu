@@ -248,6 +248,13 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
     checkoutInProgress.current = true;
     setIsLoading(true);
     try {
+      // Drafts from an older deployment can contain a display value such as
+      // "10:00 AM" instead of the canonical HH:mm value used by the server.
+      // Require a fresh calendar selection before uploading files or reserving a slot.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate) || !/^\d{2}:\d{2}$/.test(selectedTime)) {
+        throw new Error('Choose an available booking date and time from the calendar before continuing.');
+      }
+
       let designUrl = null;
       let placementUrl = null;
 
