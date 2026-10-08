@@ -5,7 +5,7 @@ export const blogPosts = [
     excerpt: "Discover the ancient roots, the Meditative process, and why traditional handpoke tattoos are experiencing a massive resurgence in modern tattoo culture.",
     date: "October 12, 2023",
     category: "Education",
-    image: "https://res.cloudinary.com/workstation-/image/upload/v1789931066/Dotlinetattu/Gallery/tattoo-artist.webp",
+    image: "/assets/Gallery/tattoo-artist.webp",
     content: `
       <h2>The Roots of the Ancient Mark</h2>
       <p>Handpoke tattooing (also known as stick and poke or traditional tattooing) is the oldest method of permanently marking the skin. Long before the invention of electric rotary or coil machines, indigenous tribes across the world—including the Mentawai and Dayak tribes of Indonesia—used sharpened bamboo, thorns, or bone attached to a stick to tap ink into the skin.</p>
@@ -33,7 +33,7 @@ export const blogPosts = [
     excerpt: "The tattoo process doesn't end when you leave the studio. Learn the crucial steps to ensure your new handpoke or machine tattoo heals flawlessly.",
     date: "November 05, 2023",
     category: "Guides",
-    image: "https://res.cloudinary.com/workstation-/image/upload/v1789931067/Dotlinetattu/Gallery/tattoo-artist-bali-2.webp",
+    image: "/assets/Gallery/tattoo-artist-bali-2.webp",
     content: `
       <h2>The First 24 Hours</h2>
       <p>Your new tattoo is essentially an open wound. When Jerry finishes your session at Dotlinetattu, he will clean the area and wrap it. Leave this wrap on for at least 2-4 hours to protect it from airborne bacteria.</p>
@@ -58,7 +58,7 @@ export const blogPosts = [
     excerpt: "Bali is a global destination for tattoo enthusiasts. Here is how to plan your trip, choose the right time to get inked, and prepare for the tropical climate.",
     date: "January 20, 2024",
     category: "Travel",
-    image: "https://res.cloudinary.com/workstation-/image/upload/v1789931063/Dotlinetattu/Gallery/custom-geometric-ornament-monkey-mask.webp",
+    image: "/assets/Gallery/custom-geometric-ornament-monkey-mask.webp",
     content: `
       <h2>Timing is Everything</h2>
       <p>The most common mistake tourists make is getting a tattoo on their first day in Bali. Remember the golden rule of aftercare: <strong>No swimming and no direct sun for 2 weeks.</strong></p>

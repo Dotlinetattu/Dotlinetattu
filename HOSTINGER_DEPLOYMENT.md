@@ -5,7 +5,7 @@ This is a server-rendered Next.js application. Deploy it as a **Node.js Web App*
 ## Before the first deployment
 
 1. For a **new Supabase project**, run `001_core_schema.sql` first, then run migrations `003` through `009` in numeric order. Do not use the older `supabase/schema.sql` prototype. For an existing project that already has migrations `003` through `008`, apply only `009_booking_integrity_and_payment_safety.sql`. Migration `009` prevents concurrent appointment overlaps and removes the legacy public appointment-write policy.
-2. Rotate the Cloudinary API secret that was previously committed in source code. Put the replacement only in Hostinger environment variables.
+2. Rotate or revoke the Cloudinary API secret that was previously committed in source code. The app no longer needs Cloudinary API credentials for new uploads.
 3. Set `NEXT_PUBLIC_APP_URL` to the final HTTPS domain, without a trailing slash. Never use `localhost` in production.
 4. Create a separate live PayPal app and webhook. Do not reuse Sandbox credentials.
 5. Verify the sender/domain in Resend before enabling customer emails.
@@ -49,12 +49,19 @@ WISE_BANK_NAME=
 WISE_ACCOUNT_DETAILS=
 WISE_REFERENCE_NOTE=
 
-CLOUDINARY_CLOUD_NAME=
-CLOUDINARY_API_KEY=
-CLOUDINARY_API_SECRET=
+# Absolute, writable folder outside Hostinger-managed deployment folders.
+HOSTINGER_UPLOAD_DIR=/home/YOUR_HOSTINGER_USER/domains/dotlinetattu.com/dotlinetattu-uploads
 ```
 
 Generate `ADMIN_SESSION_SECRET` and `BOOKING_HOLD_CRON_SECRET` as separate, long random values. Do not commit `.env.local`, and never expose `SUPABASE_SERVICE_ROLE_KEY` in a variable prefixed with `NEXT_PUBLIC_`.
+
+## Media migration status
+
+- Static website/gallery photos and background music are served from the app's `public/assets` folder.
+- New booking reference and placement photos are stored in `HOSTINGER_UPLOAD_DIR` and served by `/api/uploads/[filename]`.
+- The homepage hero video and older booking-photo URLs in Supabase still reference public Cloudinary assets. Keep those assets available until the video and historical booking images are copied to Hostinger and verified.
+- Do not disable or delete the Cloudinary account yet. The only local MP4 found is 141 MB, excluded from Git, and not verified as the same clip as the current hero. Use the confirmed hero video in a compressed format before moving it.
+- Confirm the upload folder is writable and that uploaded files remain available after a redeploy before relying on it for live bookings.
 
 ## PayPal live webhook
 

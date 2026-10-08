@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
-const MUSIC_URL = 'https://res.cloudinary.com/workstation-/video/upload/v1788876268/bg-music.wav';
+const MUSIC_URL = '/assets/Music/bg-music.wav';
 const MUSIC_ENABLED_KEY = 'dotlinetattu-music-enabled';
 
 type StudioAudioValue = {

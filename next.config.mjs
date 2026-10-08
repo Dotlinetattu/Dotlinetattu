@@ -5,6 +5,10 @@ const nextConfig = {
   // of sending an old Server Action to a newer server.
   ...(process.env.NEXT_DEPLOYMENT_ID ? { deploymentId: process.env.NEXT_DEPLOYMENT_ID } : {}),
   images: {
+    // Serve images directly to avoid routing every photo through the Next
+    // image optimizer on Hostinger. Keep Cloudinary allowed only for older
+    // booking records until their reference images have been migrated.
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: "https",

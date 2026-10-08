@@ -53,7 +53,7 @@ export default function EnterOverlay() {
             <div className="flex flex-col items-center mb-12">
               <div className="relative w-40 h-40 md:w-56 md:h-56 mb-6">
                 <Image 
-                  src="https://res.cloudinary.com/workstation-/image/upload/v1788875981/Dotlinetattu/Logo_Dotlinetattu.avif"
+                  src="/assets/Gallery/Logo_Dotlinetattu.avif"
                   alt="Dotlinetattu Logo"
                   fill
                   className="object-contain"
@@ -65,12 +65,13 @@ export default function EnterOverlay() {
               </h1>
             </div>
 
-            <button 
+            <button
+              type="button"
               onClick={handleEnter}
-              className="group relative px-10 py-4 overflow-hidden rounded-sm border border-transparent bg-transparent hover:border-accent hover:bg-accent transition-colors duration-500"
+              className="group relative min-w-44 overflow-hidden rounded-sm border border-accent/55 bg-primary/20 px-10 py-4 text-primary transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-accent hover:bg-accent hover:shadow-[0_12px_30px_rgba(184,92,56,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-[#070707] active:translate-y-px active:scale-[0.98] active:border-accent-hover active:bg-accent-hover active:shadow-inner motion-reduce:transition-none"
             >
-              <div className="absolute inset-0 bg-accent/10 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-500 ease-in-out"></div>
-              <span className="relative z-10 font-sans tracking-[0.3em] uppercase text-sm group-hover:text-accent transition-colors duration-500">
+              <div aria-hidden="true" className="pointer-events-none absolute inset-0 translate-y-full bg-white/10 transition-transform duration-200 ease-out group-hover:translate-y-0"></div>
+              <span className="relative z-10 font-sans text-sm font-semibold tracking-[0.3em] uppercase text-primary transition-colors duration-200 group-hover:text-white group-active:text-white">
                 Enter Studio
               </span>
             </button>

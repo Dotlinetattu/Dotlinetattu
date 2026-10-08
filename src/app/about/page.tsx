@@ -19,7 +19,7 @@ export default function About() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center mb-24">
           <div className="relative aspect-[3/4] rounded-sm overflow-hidden border border-border">
             <Image 
-              src="https://res.cloudinary.com/workstation-/image/upload/v1789931067/Dotlinetattu/Gallery/tattoo-artist-bali-2.webp" 
+              src="/assets/Gallery/tattoo-artist-bali-2.webp"
               alt="Jerry Tattooing" 
               fill
               className="object-cover transition-all duration-700"
@@ -49,7 +49,7 @@ export default function About() {
             </div>
           </div>
           <div className="order-1 md:order-2 relative aspect-[4/3] border border-border">
-            <Image src="https://res.cloudinary.com/workstation-/image/upload/v1789931057/Dotlinetattu/Gallery/custom-geometric-ornament-lotus-flower-resilience-transformation-2.webp" alt="Dotlinetattu Studio Bali" fill className="object-cover" />
+            <Image src="/assets/Gallery/custom-geometric-ornament-lotus-flower-resilience-transformation-2.webp" alt="Dotlinetattu Studio Bali" fill className="object-cover" />
           </div>
         </div>
 

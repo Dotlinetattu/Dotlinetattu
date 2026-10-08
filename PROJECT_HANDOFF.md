@@ -1,7 +1,7 @@
 # Dotlinetattu — Full Project Handoff
 
 > Handpoke & tribal tattoo studio website for **Silver Jerry** in Bali, Indonesia.
-> Built with **Next.js 16 (App Router)**, **Supabase**, **Midtrans**, **Resend**, **Cloudinary**, and **Tailwind CSS v4**.
+> Built with **Next.js 16 (App Router)**, **Supabase**, **Midtrans**, **Resend**, **Hostinger file storage**, and **Tailwind CSS v4**. Cloudinary remains temporarily for the homepage hero video and older booking-image records.
 
 ---
 
@@ -18,7 +18,7 @@
 9. [Multi-Stage Booking Pipeline](#9-multi-stage-booking-pipeline)
 10. [Payment System (Midtrans)](#10-payment-system-midtrans)
 11. [Email System (Resend)](#11-email-system-resend)
-12. [Image Uploads (Cloudinary)](#12-image-uploads-cloudinary)
+12. [Image Uploads (Hostinger)](#12-image-uploads-hostinger)
 13. [Calendar & Slot Blocking](#13-calendar--slot-blocking)
 14. [Homepage Sections](#14-homepage-sections)
 15. [Other Pages](#15-other-pages)
@@ -36,7 +36,7 @@
 1. **Marketing/Portfolio** — Showcase tattoo work, explain the traditional handpoke process, and build trust with tourists visiting Bali.
 2. **Booking System** — Allow customers to book flash or custom tattoo sessions online with deposit payments, and give Jerry an admin dashboard to manage the multi-stage pipeline from consultation to completed session.
 
-**Live URL**: `https://dotlinetattu.com` (deployed on Vercel)
+**Live URL**: `https://dotlinetattu.com` (deployed on Hostinger)
 **GitHub Repo**: `https://github.com/bintangmogot/handpoke-tatoo-bali`
 
 ---
@@ -45,13 +45,13 @@
 
 | Category | Technology | Version |
 |----------|-----------|---------|
-| Framework | Next.js (App Router) | 16.3.4 |
+| Framework | Next.js (App Router) | 16.3.6 |
 | React | React / React DOM | 19.2.8 |
 | Language | TypeScript | ^5 |
 | Database | Supabase (PostgreSQL) | @supabase/supabase-js ^2.114.0 |
 | Payments | Midtrans Snap API | midtrans-client ^1.4.3 |
 | Email | Resend | ^6.28.0 |
-| Image CDN | Cloudinary | ^2.11.0 |
+| Media | Local static images/audio and Hostinger booking uploads; hero video and legacy booking URLs remain on Cloudinary | — |
 | CSS | Tailwind CSS v4 | ^4 (via @tailwindcss/postcss) |
 | Icons | flag-icons | ^7.5.0 (country flags for reviews) |
 
@@ -134,7 +134,7 @@ src/
 │   │   ├── paymentActions.ts   # Midtrans transaction creation
 │   │   └── emailActions.ts     # Resend email notifications
 │   └── api/
-│       ├── upload/route.ts     # Cloudinary upload endpoint
+│       ├── upload/route.ts     # Hostinger-backed image upload endpoint
 │       └── webhook/midtrans/route.ts  # Payment webhook handler
 ├── components/
 │   ├── booking/
@@ -178,8 +178,8 @@ src/
 | `session_type` | TEXT | `flash` or `custom` |
 | `tattoo_size` | TEXT | Flash: small/medium/large. Custom: passing/medium/1day/2days/test |
 | `placement` | TEXT | Body placement description |
-| `design_url` | TEXT | Cloudinary URL of design reference |
-| `placement_url` | TEXT | Cloudinary URL of placement photo |
+| `design_url` | TEXT | Reference image URL (new uploads use Hostinger storage; older rows may use Cloudinary) |
+| `placement_url` | TEXT | Placement image URL (new uploads use Hostinger storage; older rows may use Cloudinary) |
 | `booking_date` | DATE | Selected date |
 | `booking_time` | TIME | Selected time |
 | `price` | NUMERIC | Total price in IDR |
@@ -251,12 +251,10 @@ src/
 | `RESEND_API_KEY` | `emailActions.ts`, `admin/actions.ts` | Resend API key for email |
 | `ADMIN_EMAIL` | `emailActions.ts` | Admin notification email (defaults to `onboarding@resend.dev`) |
 | `RESEND_FROM_EMAIL` | `emailActions.ts`, `admin/actions.ts` | Sender email (defaults to `Dotlinetattu <onboarding@resend.dev>`) |
+| `HOSTINGER_UPLOAD_DIR` | `src/app/api/upload/route.ts`, `src/app/api/uploads/[filename]/route.ts` | Absolute persistent folder outside Hostinger deployment directories |
 
 > [!IMPORTANT]
-> **Security**: The owner strictly refuses to share API keys in chat. All env vars are managed directly in Vercel dashboard.
-
-> [!WARNING]
-> **Known Issue**: In `src/app/api/upload/route.ts`, Cloudinary credentials (`cloud_name`, `api_key`, `api_secret`) are **hardcoded** instead of using `process.env`. This should be moved to env vars.
+> **Security**: Never put secrets in chat, source code, or public-prefixed variables. Configure production values in the Hostinger dashboard.
 
 ---
 
@@ -287,7 +285,7 @@ Type Selection -> Form -> Calendar -> Checkout (10% DP) -> Success ("Consultatio
 
 ### Key Implementation Details
 - Form state persists in `localStorage` (`dotlinetattu_booking_draft`)
-- Images uploaded to Cloudinary via `/api/upload` before booking is created
+- Images uploaded to Hostinger storage via `/api/upload` before booking is created
 - Midtrans Snap popup loaded dynamically (`snap.js`)
 - Calendar checks `appointments` table (duration-aware blocking)
 
@@ -429,14 +427,15 @@ Durations are customizable by Jerry via dropdown when advancing stages.
 
 ---
 
-## 12. Image Uploads (Cloudinary)
+## 12. Image Uploads (Hostinger)
 
 - **Upload Endpoint**: `/api/upload` (POST)
-- **Method**: Streaming upload using Cloudinary SDK
+- **Method**: JPG, PNG, and WebP images up to 8 MB are validated and stored in the folder configured by `HOSTINGER_UPLOAD_DIR`
+- **Image Endpoint**: `/api/uploads/[filename]` (GET)
 - **Used for**: Customer reference images and placement photos during booking
-
-> [!CAUTION]
-> **Hardcoded credentials**: Cloudinary `cloud_name`, `api_key`, and `api_secret` are currently hardcoded in `src/app/api/upload/route.ts`. These should be moved to environment variables.
+- **Important**: Keep this folder outside Hostinger-managed build folders such as `hbuilds`, `nodejs`, and `public_html`; those can be replaced during deployment. Verify the folder is writable and persists across redeploys before accepting live bookings.
+- Existing booking rows may still contain public Cloudinary image URLs. Keep those assets available until the rows and files are migrated or no longer needed.
+- The hero background video still uses Cloudinary. The only local MP4 found is 141 MB, excluded from Git, and not verified as the same clip; confirm and compress the correct video before switching it to app-hosted storage.
 
 ---
 
@@ -556,7 +555,7 @@ Where `bookedHourCount` sums `duration_hours` of all appointments (not just coun
 
 | Issue | Details | File(s) |
 |-------|---------|---------|
-| **Cloudinary credentials hardcoded** | Move to env vars | `src/app/api/upload/route.ts` |
+| **Hostinger upload folder** | Set `HOSTINGER_UPLOAD_DIR` to a writable persistent path outside deployment folders before deploying this upload change | Hostinger environment variables |
 | **`.env.example` outdated** | Still references Xendit; should list all current env vars | `.env.example` |
 | **Resend domain not verified** | Customer emails won't deliver until `dotlinetattu.com` is verified on Resend with Jerry's account | N/A (Resend dashboard) |
 | **Midtrans in Sandbox mode** | Need to switch to Production when ready for real payments | `paymentActions.ts`, `admin/actions.ts`, `BookingEngine.tsx` |
@@ -579,10 +578,10 @@ Where `bookedHourCount` sums `duration_hours` of all appointments (not just coun
 ## 19. Deployment & Infrastructure
 
 ### Current Setup
-- **Hosting**: Vercel (auto-deploys from `main` branch pushes)
+- **Hosting**: Hostinger Node.js Web App (live)
 - **Database**: Supabase (hosted PostgreSQL)
-- **Domain**: `dotlinetattu.com` on Hostinger (DNS pointed to Vercel)
-- **CDN/Images**: Cloudinary
+- **Domain**: `dotlinetattu.com` connected to Hostinger
+- **Media**: Hostinger static files and upload storage; Cloudinary retained temporarily for the hero video and historical booking photos
 - **Payments**: Midtrans (Sandbox)
 - **Email**: Resend (free tier, shared domain)
 

@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",
-    "cloudinary": "^2.11.0",
     "flag-icons": "^7.5.0",
     "lucide-react": "^1.47.0",
     "midtrans-client": "^1.4.3",
