@@ -57,10 +57,10 @@ Generate `ADMIN_SESSION_SECRET` and `BOOKING_HOLD_CRON_SECRET` as separate, long
 
 ## Media migration status
 
-- Static website/gallery photos and background music are served from the app's `public/assets` folder.
+- Static website/gallery photos, background music, and the optimized hero video are served from the app's `public/assets` folder.
 - New booking reference and placement photos are stored in `HOSTINGER_UPLOAD_DIR` and served by `/api/uploads/[filename]`.
-- The homepage hero video and older booking-photo URLs in Supabase still reference public Cloudinary assets. Keep those assets available until the video and historical booking images are copied to Hostinger and verified.
-- Do not disable or delete the Cloudinary account yet. The only local MP4 found is 141 MB, excluded from Git, and not verified as the same clip as the current hero. Use the confirmed hero video in a compressed format before moving it.
+- Older booking-photo URLs in Supabase may still reference public Cloudinary assets. Keep those source assets available until historical booking images are migrated and verified.
+- The homepage hero video is now stored at `public/assets/Video/hero-background.mp4`; it was transcoded from the active Cloudinary hero URL to an 8.1 MB, 1600px-wide MP4. Do not remove the original Cloudinary asset until the Hostinger deployment has been checked.
 - Confirm the upload folder is writable and that uploaded files remain available after a redeploy before relying on it for live bookings.
 
 ## PayPal live webhook

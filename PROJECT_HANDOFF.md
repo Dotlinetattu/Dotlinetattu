@@ -1,7 +1,7 @@
 # Dotlinetattu — Full Project Handoff
 
 > Handpoke & tribal tattoo studio website for **Silver Jerry** in Bali, Indonesia.
-> Built with **Next.js 16 (App Router)**, **Supabase**, **Midtrans**, **Resend**, **Hostinger file storage**, and **Tailwind CSS v4**. Cloudinary remains temporarily for the homepage hero video and older booking-image records.
+> Built with **Next.js 16 (App Router)**, **Supabase**, **Midtrans**, **Resend**, **Hostinger file storage**, and **Tailwind CSS v4**. Older booking-image records in Supabase may still reference Cloudinary.
 
 ---
 
@@ -51,7 +51,7 @@
 | Database | Supabase (PostgreSQL) | @supabase/supabase-js ^2.114.0 |
 | Payments | Midtrans Snap API | midtrans-client ^1.4.3 |
 | Email | Resend | ^6.28.0 |
-| Media | Local static images/audio and Hostinger booking uploads; hero video and legacy booking URLs remain on Cloudinary | — |
+| Media | Local static images/audio/video and Hostinger booking uploads; historical booking URLs may remain on Cloudinary | — |
 | CSS | Tailwind CSS v4 | ^4 (via @tailwindcss/postcss) |
 | Icons | flag-icons | ^7.5.0 (country flags for reviews) |
 
@@ -435,7 +435,7 @@ Durations are customizable by Jerry via dropdown when advancing stages.
 - **Used for**: Customer reference images and placement photos during booking
 - **Important**: Keep this folder outside Hostinger-managed build folders such as `hbuilds`, `nodejs`, and `public_html`; those can be replaced during deployment. Verify the folder is writable and persists across redeploys before accepting live bookings.
 - Existing booking rows may still contain public Cloudinary image URLs. Keep those assets available until the rows and files are migrated or no longer needed.
-- The hero background video still uses Cloudinary. The only local MP4 found is 141 MB, excluded from Git, and not verified as the same clip; confirm and compress the correct video before switching it to app-hosted storage.
+- The homepage hero video is now served locally from `public/assets/Video/hero-background.mp4` as an optimized 8.1 MB MP4. Keep the Cloudinary source until the Hostinger deployment is verified.
 
 ---
 
@@ -473,7 +473,7 @@ Where `bookedHourCount` sums `duration_hours` of all appointments (not just coun
 
 ## 14. Homepage Sections
 
-1. **Hero**: Fullscreen with Cloudinary video background, "Est. 2019 - Bali, Indonesia" badge, "Book a Session" CTA
+1. **Hero**: Fullscreen with a self-hosted MP4 video background, "Est. 2019 - Bali, Indonesia" badge, "Book a Session" CTA
 2. **Chevron Divider**
 3. **The Approach**: Traditional Handpoke + Music Collaboration (RA.VA.NA)
 4. **Marquee**: Scrolling brand keywords
@@ -581,7 +581,7 @@ Where `bookedHourCount` sums `duration_hours` of all appointments (not just coun
 - **Hosting**: Hostinger Node.js Web App (live)
 - **Database**: Supabase (hosted PostgreSQL)
 - **Domain**: `dotlinetattu.com` connected to Hostinger
-- **Media**: Hostinger static files and upload storage; Cloudinary retained temporarily for the hero video and historical booking photos
+- **Media**: Hostinger static files and upload storage; Cloudinary retained temporarily for historical booking photos
 - **Payments**: Midtrans (Sandbox)
 - **Email**: Resend (free tier, shared domain)
 

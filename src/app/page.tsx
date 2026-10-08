@@ -21,7 +21,7 @@ export default function Home() {
             playsInline
             className="object-cover w-full h-full opacity-60 mix-blend-luminosity"
           >
-            <source src="https://res.cloudinary.com/workstation-/video/upload/v1789129026/Dotlinetattu/Hero-Background-Video.mp4" type="video/mp4" />
+            <source src="/assets/Video/hero-background.mp4" type="video/mp4" />
           </video>
           {/* Gradients to ensure text readability */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/40 to-transparent"></div>
