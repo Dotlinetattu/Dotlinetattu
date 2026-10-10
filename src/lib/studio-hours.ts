@@ -57,6 +57,26 @@ export function timeToMinutes(time: string) {
   return (hours * 60) + (minutes || 0);
 }
 
+export function getStudioDateTime(value: Date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Makassar',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(value).reduce<Record<string, string>>((result, part) => {
+    if (part.type !== 'literal') result[part.type] = part.value;
+    return result;
+  }, {});
+
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minutes: (Number(parts.hour) * 60) + Number(parts.minute),
+  };
+}
+
 export function minutesToTime(minutes: number) {
   const hours = Math.floor(minutes / 60).toString().padStart(2, '0');
   const remainder = (minutes % 60).toString().padStart(2, '0');

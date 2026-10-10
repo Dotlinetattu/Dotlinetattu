@@ -2,16 +2,92 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { getBookedSlots, getBlockedDates, getOpenHours, createBooking } from "@/app/actions/bookingActions";
+import { getBookingAvailability, createBooking } from "@/app/actions/bookingActions";
 import { createInitialPaymentRequest } from "@/app/actions/paymentActions";
 import ZoomableImage from "@/components/ui/ZoomableImage";
-import { bookingSlotsForDay, DEFAULT_WEEKLY_HOURS, timeToMinutes, WEEK_DAYS, type WeeklyHours } from "@/lib/studio-hours";
+import { bookingSlotsForDay, DEFAULT_WEEKLY_HOURS, getStudioDateTime, timeToMinutes, WEEK_DAYS, type WeeklyHours } from "@/lib/studio-hours";
 import { CUSTOM_DEPOSIT_PERCENT, FLASH_DEPOSIT_PERCENT, SERVICE_PRICES, calculateDeposit } from "@/lib/pricing";
 
 type FlowType = "flash" | "custom";
 type Step = "warning" | "form" | "calendar" | "checkout" | "success";
+type AvailabilityState = "loading" | "ready" | "error";
+type CalendarDayStatus = "checking" | "error" | "past" | "closed" | "blocked" | "fully-booked" | "unavailable" | "no-slots" | "limited" | "available";
+
+type ScheduledAppointment = {
+  date: string;
+  time: string;
+  duration_hours?: number | null;
+  status?: string;
+};
+
+type BlockedDate = {
+  date: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  reason?: string | null;
+};
+
+type CalendarSlotAvailability = {
+  time: string;
+  booked: boolean;
+  blocked: boolean;
+  blockReason: string | null;
+};
+
+function getCalendarSlots(
+  date: string,
+  hours: WeeklyHours[keyof WeeklyHours],
+  durationHours: number,
+  appointments: ScheduledAppointment[],
+  blocks: BlockedDate[],
+  studioDate: string,
+  studioMinutes: number,
+): CalendarSlotAvailability[] {
+  if (!hours.open) return [];
+
+  const dayAppointments = appointments.filter((appointment) => appointment.date === date);
+  const dayBlocks = blocks.filter((block) => block.date === date);
+  const closingMinute = timeToMinutes(hours.end);
+
+  return bookingSlotsForDay(hours)
+    .filter((time) => timeToMinutes(time) + durationHours * 60 <= closingMinute)
+    .filter((time) => date !== studioDate || timeToMinutes(time) > studioMinutes)
+    .map((time) => {
+      const slotStart = timeToMinutes(time);
+      const slotEnd = slotStart + durationHours * 60;
+      const booked = dayAppointments.some((appointment) => {
+        const appointmentStart = timeToMinutes(appointment.time);
+        const appointmentEnd = appointmentStart + (Number(appointment.duration_hours || 1) * 60);
+        return slotStart < appointmentEnd && slotEnd > appointmentStart;
+      });
+      const block = dayBlocks.find((item) => {
+        if (!item.start_time || !item.end_time) return true;
+        return slotStart < timeToMinutes(item.end_time) && slotEnd > timeToMinutes(item.start_time);
+      });
+
+      return {
+        time,
+        booked,
+        blocked: Boolean(block),
+        blockReason: block?.reason || null,
+      };
+    });
+}
 
 const STORAGE_KEY = "dotlinetattu_booking_draft";
+
+const CALENDAR_DAY_STYLES: Record<CalendarDayStatus, string> = {
+  checking: "border-border/70 bg-primary text-secondary/50",
+  error: "border-border/70 bg-primary text-secondary/50",
+  past: "border-border/40 bg-primary/70 text-secondary/35",
+  closed: "border-border/60 bg-surface/70 text-secondary/45",
+  blocked: "border-border/60 bg-surface/70 text-secondary/45",
+  "fully-booked": "border-accent/30 bg-accent/5 text-secondary/60",
+  unavailable: "border-border/60 bg-surface/70 text-secondary/45",
+  "no-slots": "border-border/60 bg-surface/70 text-secondary/45",
+  limited: "border-accent/50 bg-accent/10 text-primary hover:border-accent hover:bg-accent/20",
+  available: "border-border bg-primary text-primary hover:border-accent hover:bg-accent/10",
+};
 
 const COUNTRY_CALLING_CODES = [
   { code: "+62", country: "Indonesia", flag: "🇮🇩" },
@@ -73,6 +149,9 @@ interface BookingEngineProps {
 
 export default function BookingEngine({ initialType }: BookingEngineProps) {
   const now = new Date();
+  const studioNow = getStudioDateTime(now);
+  const isReadOnlyCalendarPreview = process.env.NODE_ENV === "development"
+    && process.env.NEXT_PUBLIC_BOOKING_CALENDAR_PREVIEW === "true";
   const studioWhatsapp = (process.env.NEXT_PUBLIC_STUDIO_WHATSAPP || '').replace(/[^0-9]/g, '');
   const whatsappUrl = (message: string) => `https://wa.me/${studioWhatsapp}?text=${encodeURIComponent(message)}`;
 
@@ -81,34 +160,53 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
   const [type, setType] = useState<FlowType>(initialType);
   const [step, setStep] = useState<Step>(initialType === "flash" ? "warning" : "form");
   const [isLoading, setIsLoading] = useState(false);
-  const [bookedSlots, setBookedSlots] = useState<any[]>([]);
-  const [blockedDates, setBlockedDates] = useState<any[]>([]);
+  const [bookedSlots, setBookedSlots] = useState<ScheduledAppointment[]>([]);
+  const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [openHours, setOpenHours] = useState<WeeklyHours>(DEFAULT_WEEKLY_HOURS);
+  const [availabilityState, setAvailabilityState] = useState<AvailabilityState>("loading");
+  const [availabilityRetry, setAvailabilityRetry] = useState(0);
   const [bookingId, setBookingId] = useState<string>("");
   const [countryCode, setCountryCode] = useState("+62");
   const [countryQuery, setCountryQuery] = useState("");
   const checkoutInProgress = useRef(false);
   const paymentProvider = 'PAYPAL' as const;
 
-  const [calMonth, setCalMonth] = useState<number>(now.getMonth());
-  const [calYear, setCalYear] = useState<number>(now.getFullYear());
+  const [calMonth, setCalMonth] = useState<number>(Number(studioNow.date.slice(5, 7)) - 1);
+  const [calYear, setCalYear] = useState<number>(Number(studioNow.date.slice(0, 4)));
 
-  // Fetch booked slots
+  // Keep the availability UI fail-closed: users must not choose a date until
+  // bookings, blocked periods, and studio hours have been checked.
   useEffect(() => {
+    let active = true;
+    let isFetching = false;
+
     async function fetchSlots() {
-      const [slots, blocked, hours] = await Promise.all([
-        getBookedSlots(),
-        getBlockedDates(),
-        getOpenHours()
-      ]);
-      setBookedSlots(slots);
-      setBlockedDates(blocked);
-      setOpenHours(hours);
+      if (isFetching) return;
+      isFetching = true;
+
+      try {
+        const { slots, blocked, hours } = await getBookingAvailability();
+        if (!active) return;
+        setBookedSlots(slots);
+        setBlockedDates(blocked);
+        setOpenHours(hours);
+        setAvailabilityState("ready");
+      } catch (error) {
+        if (!active) return;
+        console.error("Could not load booking availability:", error);
+        setAvailabilityState("error");
+      } finally {
+        isFetching = false;
+      }
     }
-    fetchSlots();
-    const refreshInterval = window.setInterval(fetchSlots, 60_000);
-    return () => window.clearInterval(refreshInterval);
-  }, []);
+
+    void fetchSlots();
+    const refreshInterval = window.setInterval(() => void fetchSlots(), 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(refreshInterval);
+    };
+  }, [availabilityRetry]);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -133,8 +231,8 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
         if (draft.step) setStep(draft.step);
         if (draft.calMonth != null) setCalMonth(draft.calMonth);
         if (draft.calYear != null) setCalYear(draft.calYear);
-        if (draft.selectedDate) setSelectedDate(draft.selectedDate);
-        if (draft.selectedTime) setSelectedTime(draft.selectedTime);
+        if (typeof draft.selectedDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(draft.selectedDate)) setSelectedDate(draft.selectedDate);
+        if (typeof draft.selectedTime === "string" && /^\d{2}:\d{2}$/.test(draft.selectedTime)) setSelectedTime(draft.selectedTime);
         if (draft.form) {
           const savedPhone = splitPhoneNumber(draft.form.whatsapp ?? "");
           setCountryCode(savedPhone.countryCode);
@@ -204,8 +302,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) && 
     whatsappDigits.length >= 8 && whatsappDigits.length <= 15 &&
     formData.placementText.trim().length >= 2 && 
-    formData.placementImage !== null && 
-    formData.referenceImage !== null;
+    (isReadOnlyCalendarPreview || (formData.placementImage !== null && formData.referenceImage !== null));
 
   // Pricing Logic
   const calculatePrice = () => {
@@ -242,8 +339,95 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
         return `${displayHour}:${minuteText} ${hour >= 12 ? "PM" : "AM"}`;
       })()
     : selectedTime;
+  const bookingDurationHours = type === "flash" ? 2 : 1;
+  const selectedDateSlots = selectedDate
+    ? getCalendarSlots(selectedDate, openHours[WEEK_DAYS[new Date(`${selectedDate}T00:00:00`).getDay()].key], bookingDurationHours, bookedSlots, blockedDates, studioNow.date, studioNow.minutes)
+    : [];
+  const selectedDateOpenSlots = selectedDateSlots.filter((slot) => !slot.booked && !slot.blocked);
+  const selectedSlot = selectedDateSlots.find((slot) => slot.time === selectedTime);
+  const canProceedToDeposit = availabilityState === "ready"
+    && Boolean(selectedDate)
+    && selectedDate >= studioNow.date
+    && Boolean(selectedSlot)
+    && !selectedSlot?.booked
+    && !selectedSlot?.blocked;
+
+  const daysInCalendarMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const firstWeekdayOfMonth = new Date(calYear, calMonth, 1).getDay();
+  const calendarDays = Array.from({ length: daysInCalendarMonth }, (_, index) => {
+    const day = index + 1;
+    const date = new Date(calYear, calMonth, day);
+    const dateString = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const dayHours = openHours[WEEK_DAYS[date.getDay()].key];
+    const slots = getCalendarSlots(dateString, dayHours, bookingDurationHours, bookedSlots, blockedDates, studioNow.date, studioNow.minutes);
+    const openSlots = slots.filter((slot) => !slot.booked && !slot.blocked).length;
+    const bookedSlotCount = slots.filter((slot) => slot.booked).length;
+    const blockedSlotCount = slots.filter((slot) => slot.blocked && !slot.booked).length;
+    const hasFullDayBlock = blockedDates.some((block) => block.date === dateString && (!block.start_time || !block.end_time));
+    const isPast = dateString < studioNow.date;
+
+    let status: CalendarDayStatus;
+    if (isPast) status = "past";
+    else if (availabilityState === "loading") status = "checking";
+    else if (availabilityState === "error") status = "error";
+    else if (!dayHours.open) status = "closed";
+    else if (hasFullDayBlock) status = "blocked";
+    else if (slots.length === 0) status = "no-slots";
+    else if (openSlots === 0 && bookedSlotCount > 0 && blockedSlotCount === 0) status = "fully-booked";
+    else if (openSlots === 0) status = "unavailable";
+    else if (bookedSlotCount > 0 || blockedSlotCount > 0) status = "limited";
+    else status = "available";
+
+    const shortStatus: Record<CalendarDayStatus, string> = {
+      checking: "Checking",
+      error: "Retry",
+      past: "Past",
+      closed: "Closed",
+      blocked: "Blocked",
+      "fully-booked": "Full",
+      unavailable: "None",
+      "no-slots": "No slots",
+      limited: `${openSlots} left`,
+      available: "Open",
+    };
+    const statusDescription: Record<CalendarDayStatus, string> = {
+      checking: "availability is being checked",
+      error: "availability could not be checked",
+      past: "in the past",
+      closed: "the studio is closed",
+      blocked: "the studio is unavailable",
+      "fully-booked": "all bookable times are already booked",
+      unavailable: "no bookable times are available",
+      "no-slots": `no ${bookingDurationHours}-hour start times fit this day`,
+      limited: `${openSlots} of ${slots.length} start times are still available`,
+      available: `all ${slots.length} start times are available`,
+    };
+
+    return {
+      day,
+      dateString,
+      dateLabel: date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
+      isToday: dateString === studioNow.date,
+      openSlots,
+      slots,
+      status,
+      shortStatus: shortStatus[status],
+      statusDescription: status === "no-slots" && dateString === studioNow.date
+        ? "no future booking times remain today"
+        : statusDescription[status],
+    };
+  });
+  const selectedDateStatus = calendarDays.find((date) => date.dateString === selectedDate)?.status;
+  const isSelectedDateBookable = availabilityState === "ready" && (selectedDateStatus === "available" || selectedDateStatus === "limited");
+  const openDateCount = calendarDays.filter((date) => date.status === "available" || date.status === "limited").length;
+  const isCurrentMonth = calYear === Number(studioNow.date.slice(0, 4)) && calMonth === Number(studioNow.date.slice(5, 7)) - 1;
+  const monthLabel = new Date(calYear, calMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const handleCheckout = async () => {
+    if (isReadOnlyCalendarPreview) {
+      alert('Read-only preview: booking, payments, and image uploads are disabled.');
+      return;
+    }
     if (checkoutInProgress.current) return;
     checkoutInProgress.current = true;
     setIsLoading(true);
@@ -404,7 +588,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                 <div className="bg-accent/10 border border-accent/20 p-5 mb-6 rounded-sm relative overflow-hidden">
                   <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent/50"></div>
                   <p className="text-accent/90 font-sans text-sm leading-relaxed italic relative z-10">
-                    "Modern design styles cannot be achieved with traditional hand tapping."
+                    &ldquo;Modern design styles cannot be achieved with traditional hand tapping.&rdquo;
                   </p>
                 </div>
 
@@ -444,6 +628,11 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
         {/* STEP 2: FORM */}
         {step === "form" && (
           <div className="animate-in fade-in slide-in-from-bottom-4">
+            {isReadOnlyCalendarPreview && (
+              <p className="mb-5 border border-accent/40 bg-accent/5 px-4 py-3 text-sm leading-relaxed text-secondary" role="note">
+                Read-only preview: enter sample details to test the calendar. Photos, bookings, and payments are disabled here.
+              </p>
+            )}
             <h2 className="font-heading text-3xl text-primary mb-6">
               {type === "flash" ? "Your Details" : "Tattoo Idea & Placement"}
             </h2>
@@ -575,9 +764,9 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                 {/* Reference Image */}
                 <div>
                   <label className="block text-secondary font-sans text-xs tracking-widest uppercase mb-2">
-                    Reference Image <span className="text-red-500">*</span>
+                    Reference Image {isReadOnlyCalendarPreview ? <span className="text-secondary/60">(skipped in preview)</span> : <span className="text-red-500">*</span>}
                   </label>
-                  <p className="text-secondary/60 text-xs font-sans mb-3">Upload a screenshot of the flash or your custom idea.</p>
+                  <p className="text-secondary/60 text-xs font-sans mb-3">{isReadOnlyCalendarPreview ? "Photo uploads are disabled in this preview." : "Upload a screenshot of the flash or your custom idea."}</p>
                   <label className={`w-full border-2 border-dashed p-6 text-center flex flex-col items-center justify-center transition-colors cursor-pointer rounded-sm ${formData.referenceImage ? 'border-accent bg-accent/5 text-accent' : 'border-border text-secondary hover:border-accent bg-primary/50'}`}>
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileChange(e, "referenceImage")} />
                     <svg className="w-8 h-8 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
@@ -588,9 +777,9 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                 {/* Placement Image */}
                 <div>
                   <label className="block text-secondary font-sans text-xs tracking-widest uppercase mb-2">
-                    Body Placement Photo <span className="text-red-500">*</span>
+                    Body Placement Photo {isReadOnlyCalendarPreview ? <span className="text-secondary/60">(skipped in preview)</span> : <span className="text-red-500">*</span>}
                   </label>
-                  <p className="text-secondary/60 text-xs font-sans mb-3">Upload a photo of the body part where you want the tattoo.</p>
+                  <p className="text-secondary/60 text-xs font-sans mb-3">{isReadOnlyCalendarPreview ? "Photo uploads are disabled in this preview." : "Upload a photo of the body part where you want the tattoo."}</p>
                   <label className={`w-full border-2 border-dashed p-6 text-center flex flex-col items-center justify-center transition-colors cursor-pointer rounded-sm ${formData.placementImage ? 'border-accent bg-accent/5 text-accent' : 'border-border text-secondary hover:border-accent bg-primary/50'}`}>
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileChange(e, "placementImage")} />
                     <svg className="w-8 h-8 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -635,7 +824,7 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
                     disabled={!isFormValid}
                     className={`w-full sm:w-auto px-6 py-4 font-sans tracking-widest uppercase text-xs font-bold rounded-sm transition-all ${isFormValid ? 'bg-accent hover:bg-accent-hover text-white' : 'border border-zinc-900 bg-zinc-900 text-zinc-500 cursor-not-allowed'}`}
                   >
-                    Pay Deposit & Book
+                    Choose date &amp; time
                   </button>
                 </div>
               </div>
@@ -646,226 +835,231 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
         {/* STEP 3: CALENDAR */}
         {step === "calendar" && (
           <div className="animate-in fade-in slide-in-from-right-4">
-            <h2 className="font-heading text-3xl text-primary mb-2">
-              {type === "flash" ? "Pick Tattoo Date" : "Pick Consultation Date"}
-            </h2>
-            <p className="text-secondary font-sans text-sm mb-8">
-              {type === "flash" 
-                ? "Select an available slot for your tattoo session." 
-                : "Select an offline consultation date (Must be 3-4 days before your desired tattoo day)."}
-            </p>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Dynamic Calendar */}
-              <div className="bg-primary border border-border p-6 rounded-sm">
-                {/* Month navigation */}
-                <div className="flex justify-between items-center mb-6">
+            <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="mb-2 font-sans text-[10px] font-semibold uppercase tracking-[0.24em] text-accent">Booking calendar</p>
+                <h2 className="font-heading text-3xl text-primary">
+                  {type === "flash" ? "Choose your tattoo date" : "Choose your consultation date"}
+                </h2>
+                <p className="mt-2 max-w-2xl font-sans text-sm leading-relaxed text-secondary">
+                  {type === "flash"
+                    ? "See which days have room for a two-hour tattoo session."
+                    : "Choose an open time for your one-hour offline consultation. Your tattoo session will be scheduled after the consultation."}
+                </p>
+              </div>
+              <div className="shrink-0 border-l-2 border-accent/70 pl-4 text-xs leading-5 text-secondary/80">
+                <span className="block text-primary">{bookingDurationHours}-hour appointment</span>
+                <span>Bali local time (WITA)</span>
+              </div>
+            </div>
+
+            <div className="mb-6 flex flex-col gap-3 border border-border bg-primary/70 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between" role="status" aria-live="polite">
+              <div className="flex items-center gap-3">
+                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${availabilityState === "ready" ? "bg-emerald-500" : availabilityState === "error" ? "bg-red-400" : "animate-pulse bg-accent"}`} aria-hidden="true" />
+                <span className="text-secondary">
+                  {availabilityState === "loading" && "Checking bookings and studio hours…"}
+                  {availabilityState === "ready" && "Availability is current. It refreshes automatically every minute."}
+                  {availabilityState === "error" && "We couldn’t load live availability. Dates and times are disabled until this is fixed."}
+                </span>
+              </div>
+              {availabilityState === "error" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAvailabilityState("loading");
+                    setAvailabilityRetry((retry) => retry + 1);
+                  }}
+                  className="min-h-10 border border-border px-4 text-xs font-semibold uppercase tracking-widest text-primary transition-colors hover:border-accent hover:text-accent"
+                >
+                  Try again
+                </button>
+              )}
+            </div>
+
+            {isReadOnlyCalendarPreview && (
+              <p className="mb-6 border border-accent/40 bg-accent/5 px-4 py-3 text-sm leading-relaxed text-secondary" role="note">
+                Read-only preview: showing current studio availability. Bookings and payments cannot be submitted here.
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+              <section aria-label="Choose a booking date" className="border border-border bg-primary p-4 sm:p-6">
+                <div className="mb-5 flex items-center justify-between gap-3">
                   <button
+                    type="button"
+                    aria-label="Previous month"
+                    disabled={isCurrentMonth}
                     onClick={() => {
-                      const d = new Date(calYear, calMonth - 1, 1);
-                      setCalMonth(d.getMonth());
-                      setCalYear(d.getFullYear());
+                      const date = new Date(calYear, calMonth - 1, 1);
+                      setCalMonth(date.getMonth());
+                      setCalYear(date.getFullYear());
                       setSelectedDate("");
                       setSelectedTime("");
                     }}
-                    className="text-secondary hover:text-accent px-2 py-1 text-lg transition-colors"
+                    className="inline-flex h-10 w-10 items-center justify-center border border-border text-lg text-secondary transition-colors hover:border-accent hover:text-primary disabled:cursor-not-allowed disabled:opacity-30"
                   >
-                    ←
+                    <span aria-hidden="true">←</span>
                   </button>
-                  <span className="font-heading text-xl text-primary">
-                    {new Date(calYear, calMonth).toLocaleString("en-US", { month: "long", year: "numeric" })}
-                  </span>
+                  <div className="text-center">
+                    <h3 className="font-heading text-xl text-primary">{monthLabel}</h3>
+                    <p className="mt-1 text-xs text-secondary/70">
+                      {availabilityState === "ready" ? `${openDateCount} ${openDateCount === 1 ? "day" : "days"} with times available` : "Calendar availability"}
+                    </p>
+                  </div>
                   <button
+                    type="button"
+                    aria-label="Next month"
                     onClick={() => {
-                      const d = new Date(calYear, calMonth + 1, 1);
-                      setCalMonth(d.getMonth());
-                      setCalYear(d.getFullYear());
+                      const date = new Date(calYear, calMonth + 1, 1);
+                      setCalMonth(date.getMonth());
+                      setCalYear(date.getFullYear());
                       setSelectedDate("");
                       setSelectedTime("");
                     }}
-                    className="text-secondary hover:text-accent px-2 py-1 text-lg transition-colors"
+                    className="inline-flex h-10 w-10 items-center justify-center border border-border text-lg text-secondary transition-colors hover:border-accent hover:text-primary"
                   >
-                    →
+                    <span aria-hidden="true">→</span>
                   </button>
                 </div>
 
-                {/* Day headers */}
-                <div className="grid grid-cols-7 gap-1 text-center mb-2">
-                  {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => (
-                    <div key={d} className="text-secondary/50 text-xs font-sans uppercase tracking-widest py-1">{d}</div>
+                <div className="mb-2 grid grid-cols-7 gap-1 text-center" aria-hidden="true">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                    <div key={day} className="py-2 text-[10px] font-semibold uppercase tracking-wider text-secondary/60">{day}</div>
                   ))}
                 </div>
 
-                {/* Day grid — with correct start offset */}
-                <div className="grid grid-cols-7 gap-1">
-                  {/* Empty cells for days before 1st */}
-                  {Array.from({ length: new Date(calYear, calMonth, 1).getDay() }).map((_, i) => (
-                    <div key={`empty-${i}`} />
+                <div className="grid grid-cols-7 gap-1.5" role="group" aria-label={`${monthLabel} dates`}>
+                  {Array.from({ length: firstWeekdayOfMonth }, (_, index) => (
+                    <div key={`empty-${index}`} className="min-h-[4.25rem]" aria-hidden="true" />
                   ))}
-
-                  {/* Actual days */}
-                  {Array.from({ length: new Date(calYear, calMonth + 1, 0).getDate() }).map((_, i) => {
-                    const day = i + 1;
-                    const mm = String(calMonth + 1).padStart(2, "0");
-                    const dd = String(day).padStart(2, "0");
-                    const dateStr = `${calYear}-${mm}-${dd}`;
-
-                    const today = new Date();
-                    today.setHours(0,0,0,0);
-                    const thisDay = new Date(calYear, calMonth, day);
-                    const isPast = thisDay < today;
-                    const dayKey = WEEK_DAYS[thisDay.getDay()].key;
-                    const dayHours = openHours[dayKey];
-                    const availableSlots = bookingSlotsForDay(dayHours);
-
-                    const slotsForDay = bookedSlots.filter(s => s.date === dateStr);
-                    const totalDailySlots = availableSlots.length;
-                    
-                    const blocksForDay = blockedDates.filter(b => b.date === dateStr);
-                    const isFullDayBlocked = blocksForDay.some(b => !b.start_time);
-                    const partialBlocks = blocksForDay.filter(b => b.start_time && b.end_time);
-                    const unavailableSlots = availableSlots.filter((slot) => {
-                      const slotStart = timeToMinutes(slot);
-                      const slotEnd = slotStart + 60;
-                      const overlapsAppointment = slotsForDay.some((appointment) => {
-                        const appointmentStart = timeToMinutes(appointment.time);
-                        const appointmentEnd = appointmentStart + (Number(appointment.duration_hours || 1) * 60);
-                        return slotStart < appointmentEnd && slotEnd > appointmentStart;
-                      });
-                      const overlapsBlock = partialBlocks.some((block) => (
-                        slotStart < timeToMinutes(block.end_time) && slotEnd > timeToMinutes(block.start_time)
-                      ));
-                      return overlapsAppointment || overlapsBlock;
-                    }).length;
-
-                    const isFullyBooked = dayHours.open && totalDailySlots > 0 && unavailableSlots >= totalDailySlots;
-                    
-                    const isDisabled = isPast || !dayHours.open || isFullDayBlocked || isFullyBooked;
-                    const isSelected = selectedDate === dateStr;
-
+                  {calendarDays.map((date) => {
+                    const isSelectable = availabilityState === "ready" && (date.status === "available" || date.status === "limited");
+                    const isSelected = selectedDate === date.dateString && isSelectable;
                     return (
                       <button
-                        key={dateStr}
-                        disabled={isDisabled}
-                        onClick={() => { setSelectedDate(dateStr); setSelectedTime(""); }}
-                        className={`
-                          aspect-square flex flex-col items-center justify-center font-sans text-sm transition-all relative
-                          ${isDisabled
-                            ? "text-secondary/20 cursor-not-allowed"
-                            : isSelected
-                              ? "bg-accent text-white"
-                              : "text-primary hover:bg-accent/20 hover:text-white cursor-pointer"
-                          }
-                        `}
+                        key={date.dateString}
+                        type="button"
+                        disabled={!isSelectable}
+                        aria-label={`${date.dateLabel}: ${date.statusDescription}`}
+                        aria-pressed={isSelected}
+                        title={`${date.dateLabel}: ${date.statusDescription}`}
+                        onClick={() => {
+                          setSelectedDate(date.dateString);
+                          setSelectedTime("");
+                        }}
+                        className={`relative flex min-h-[4.25rem] flex-col items-center justify-center gap-0.5 border px-0.5 text-center transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed ${isSelected ? "border-accent bg-accent text-white" : CALENDAR_DAY_STYLES[date.status]} ${date.isToday && !isSelected ? "ring-1 ring-inset ring-accent/70" : ""}`}
                       >
-                        <span>{day}</span>
-                        {isFullDayBlocked && (
-                          <span className="text-[8px] uppercase tracking-wider text-red-500/50 mt-0.5 hidden md:block">Blocked</span>
-                        )}
-                        {!dayHours.open && !isFullDayBlocked && (
-                          <span className="mt-0.5 hidden text-[8px] uppercase tracking-wider text-secondary/50 md:block">Closed</span>
-                        )}
-                        {!isDisabled && !isFullDayBlocked && (slotsForDay.length > 0 || partialBlocks.length > 0) && (
-                          <div className="absolute bottom-1 flex gap-0.5">
-                            {slotsForDay.map((_, idx) => (
-                              <div key={`booked-${idx}`} className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-accent'}`} />
-                            ))}
-                            {Array.from({length: Math.min(partialBlocks.length, 3)}).map((_, idx) => (
-                              <div key={`blocked-${idx}`} className="w-1 h-1 rounded-full bg-red-500/50" />
-                            ))}
-                          </div>
-                        )}
+                        <span className="text-sm font-semibold leading-none">{date.day}</span>
+                        <span className={`max-w-full truncate text-[8px] leading-tight sm:text-[9px] ${isSelected ? "text-white/85" : "opacity-80"}`}>
+                          {date.shortStatus}
+                        </span>
+                        {date.status === "limited" && !isSelected && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />}
                       </button>
                     );
                   })}
                 </div>
-              </div>
 
-              {/* Time Slots */}
-              <div>
-                <h4 className="font-heading text-xl text-primary mb-4">Available Times</h4>
-                {selectedDate ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    {(() => {
-                      const selectedDay = new Date(`${selectedDate}T00:00:00`);
-                      const dayKey = WEEK_DAYS[selectedDay.getDay()].key;
-                      const slots = bookingSlotsForDay(openHours[dayKey]);
-                      
-                      return slots.map(time => {
-                        const slotStart = timeToMinutes(time);
-                        const slotEnd = slotStart + 60;
-                        const isTimeBooked = bookedSlots.some(s => {
-                          if (s.date !== selectedDate) return false;
-                          const appointmentStart = timeToMinutes(s.time);
-                          const appointmentEnd = appointmentStart + (Number(s.duration_hours || 1) * 60);
-                          return slotStart < appointmentEnd && slotEnd > appointmentStart;
-                        });
-                        
-                        const blockRecord = blockedDates.find(b => {
-                          if (b.date !== selectedDate) return false;
-                          if (!b.start_time) return true; // Full day block
-                          
-                          const blockStart = timeToMinutes(b.start_time);
-                          const blockEnd = timeToMinutes(b.end_time);
-                          return slotStart < blockEnd && slotEnd > blockStart;
-                        });
+                <div className="mt-6 border-t border-border pt-4">
+                  <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary/60">Date key</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-secondary">
+                    <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 border border-border bg-primary" aria-hidden="true" /> Open</span>
+                    <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 border border-accent/50 bg-accent/20" aria-hidden="true" /> Limited</span>
+                    <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 border border-accent/30 bg-accent/5" aria-hidden="true" /> Fully booked</span>
+                    <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 border border-border bg-surface" aria-hidden="true" /> Closed / unavailable</span>
+                  </div>
+                    <p className="mt-3 text-[11px] leading-5 text-secondary/55">Past dates can’t be selected. A day marked Limited still has bookable times.</p>
+                </div>
+              </section>
 
-                        const isTimeBlocked = !!blockRecord;
-                        const isTimeDisabled = isTimeBooked || isTimeBlocked;
-                        
-                        const [hourText, minuteText] = time.split(':');
-                        const hour = parseInt(hourText);
-                        const ampm = hour >= 12 ? 'PM' : 'AM';
-                        const displayHour = hour % 12 === 0 ? 12 : hour % 12;
-                        const displayTime = `${displayHour.toString().padStart(2, '0')}:${minuteText} ${ampm}`;
-                        
-                        let blockText = "(Blocked)";
-                        if (isTimeBlocked && blockRecord.reason) {
-                          blockText = `(Blocked: ${blockRecord.reason})`;
-                        }
-                        
-                        return (
-                          <button
-                            key={time}
-                            disabled={isTimeDisabled}
-                            onClick={() => setSelectedTime(time)}
-                            className={`
-                              py-3 border text-sm font-sans transition-all rounded-sm
-                              ${isTimeDisabled
-                                ? "border-border bg-surface text-secondary/30 cursor-not-allowed"
-                                : selectedTime === time
-                                  ? "border-accent bg-accent/10 text-accent"
-                                  : "border-border bg-primary text-secondary hover:border-accent hover:text-primary"
-                              }
-                            `}
-                          >
-                            {displayTime} {isTimeBooked && "(Booked)"} {isTimeBlocked && !isTimeBooked && blockText}
-                          </button>
-                        );
-                      });
-                    })()}
+              <section aria-label="Choose an available time" className="flex min-h-[23rem] flex-col border border-border bg-primary p-4 sm:p-6">
+                <div className="mb-5 border-b border-border pb-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">Step 2</p>
+                  <h3 className="mt-1 font-heading text-xl text-primary">Choose a time</h3>
+                  {selectedDate && isSelectedDateBookable ? (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm text-primary">{new Date(`${selectedDate}T00:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
+                      <span className="text-xs text-secondary">
+                        {availabilityState === "ready" ? `${selectedDateOpenSlots.length} of ${selectedDateSlots.length} times available` : "Checking times…"}
+                      </span>
+                    </div>
+                  ) : selectedDate && availabilityState === "ready" ? (
+                    <p className="mt-3 text-sm text-amber-200/80">That date is no longer available. Choose another date from the calendar.</p>
+                  ) : (
+                    <p className="mt-2 text-sm text-secondary">Select an open date to see its times.</p>
+                  )}
+                </div>
+
+                {availabilityState === "loading" ? (
+                  <div className="flex flex-1 items-center justify-center border border-dashed border-border p-6 text-center text-sm text-secondary" role="status">
+                    Checking the studio calendar…
+                  </div>
+                ) : availabilityState === "error" ? (
+                  <div className="flex flex-1 items-center justify-center border border-dashed border-border p-6 text-center text-sm leading-6 text-secondary" role="alert">
+                    Live availability is unavailable. Please try again before choosing a date.
+                  </div>
+                ) : !selectedDate ? (
+                  <div className="flex flex-1 items-center justify-center border border-dashed border-border p-6 text-center text-sm leading-6 text-secondary/75">
+                    Choose a date marked Open or Limited. Booked times won’t be selectable.
+                  </div>
+                ) : !isSelectedDateBookable ? (
+                  <div className="flex flex-1 items-center justify-center border border-dashed border-border p-6 text-center text-sm leading-6 text-secondary/75">
+                    This date is closed, full, or no longer available. Select another day to see its times.
+                  </div>
+                ) : selectedDateSlots.length === 0 ? (
+                  <div className="flex flex-1 items-center justify-center border border-dashed border-border p-6 text-center text-sm leading-6 text-secondary/75">
+                    There are no {bookingDurationHours}-hour start times on this day. Please choose another date.
                   </div>
                 ) : (
-                  <div className="h-full flex items-center justify-center border border-dashed border-border bg-primary/50 text-secondary font-sans text-sm p-8 text-center rounded-sm">
-                    Select a date first to see available time slots.
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {selectedDateSlots.map((slot) => {
+                      const isUnavailable = slot.booked || slot.blocked;
+                      const [hourText, minuteText] = slot.time.split(":");
+                      const hour = Number(hourText);
+                      const displayHour = hour % 12 || 12;
+                      const displayTime = `${displayHour}:${minuteText} ${hour >= 12 ? "PM" : "AM"}`;
+                      const status = slot.booked ? "Booked" : slot.blocked ? (slot.blockReason || "Unavailable") : "Available";
+                      return (
+                        <button
+                          key={slot.time}
+                          type="button"
+                          disabled={isUnavailable}
+                          aria-label={`${displayTime}, ${status.toLowerCase()}`}
+                          aria-pressed={selectedTime === slot.time}
+                          title={status}
+                          onClick={() => setSelectedTime(slot.time)}
+                          className={`flex min-h-14 items-center justify-between gap-2 border px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed ${isUnavailable ? "border-border/70 bg-surface/70 text-secondary/50" : selectedTime === slot.time ? "border-accent bg-accent/10 text-accent" : "border-border text-primary hover:border-accent hover:bg-accent/5"}`}
+                        >
+                          <span className="text-sm font-semibold">{displayTime}</span>
+                          <span className={`text-[9px] font-semibold uppercase tracking-wider ${slot.booked ? "text-secondary/55" : slot.blocked ? "text-secondary/65" : selectedTime === slot.time ? "text-accent" : "text-emerald-400"}`}>
+                            {status}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
-              </div>
+
+                {availabilityState === "ready" && selectedDate && selectedDateSlots.length > 0 && (
+                  <p className="mt-4 text-[11px] leading-5 text-secondary/55">Unavailable times are already booked or blocked by the studio. Customer and booking details are never shown here.</p>
+                )}
+              </section>
             </div>
 
-            <div className="pt-10 flex justify-between">
-              <button 
+            <div className="mt-8 flex flex-col-reverse gap-3 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                type="button"
                 onClick={() => setStep("form")}
-                className="px-6 py-4 text-secondary hover:text-primary font-sans tracking-widest uppercase text-xs font-bold transition-all"
+                className="min-h-12 px-5 text-left text-xs font-bold uppercase tracking-widest text-secondary transition-colors hover:text-primary"
               >
-                ← Back
+                ← Back to details
               </button>
-              <button 
+              <button
+                type="button"
                 onClick={() => setStep("checkout")}
-                disabled={!selectedDate || !selectedTime}
-                className={`px-8 py-4 font-sans tracking-widest uppercase text-xs font-bold rounded-sm transition-all ${(!selectedDate || !selectedTime) ? "bg-surface text-secondary/50 cursor-not-allowed" : "bg-accent hover:bg-accent-hover text-white"}`}
+                disabled={!canProceedToDeposit}
+                className={`min-h-12 px-7 text-xs font-bold uppercase tracking-widest transition-colors ${canProceedToDeposit ? "bg-accent text-white hover:bg-accent-hover" : "cursor-not-allowed bg-surface text-secondary/50"}`}
               >
-                Proceed to Deposit
+                Continue to deposit
               </button>
             </div>
           </div>
@@ -878,6 +1072,12 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
               <h2 className="font-heading text-3xl text-primary mb-2">Deposit Summary</h2>
               <p className="text-secondary font-sans text-sm">Review your booking details before paying.</p>
             </div>
+
+            {isReadOnlyCalendarPreview && (
+              <p className="mb-6 border border-accent/40 bg-accent/5 px-4 py-3 text-sm leading-relaxed text-secondary" role="note">
+                Read-only preview: no booking, photo upload, or payment will be submitted.
+              </p>
+            )}
 
             <div className="bg-primary border border-border p-5 sm:p-8 rounded-sm mb-8 space-y-5">
               <div className="flex items-baseline justify-between gap-6 border-b border-border pb-4">
@@ -915,10 +1115,10 @@ export default function BookingEngine({ initialType }: BookingEngineProps) {
             <div className="flex flex-col gap-4">
               <button 
                 onClick={handleCheckout}
-                disabled={isLoading}
-                className={`w-full py-4 font-sans tracking-widest uppercase text-xs font-bold transition-all ${isLoading ? 'bg-surface text-secondary cursor-not-allowed' : 'bg-accent hover:bg-accent-hover text-white'}`}
+                disabled={isLoading || isReadOnlyCalendarPreview}
+                className={`w-full py-4 font-sans tracking-widest uppercase text-xs font-bold transition-all ${isLoading || isReadOnlyCalendarPreview ? 'bg-surface text-secondary cursor-not-allowed' : 'bg-accent hover:bg-accent-hover text-white'}`}
               >
-                {isLoading ? "Creating payment link..." : "Continue to PayPal"}
+                {isReadOnlyCalendarPreview ? "Payment disabled in preview" : isLoading ? "Creating payment link..." : "Continue to PayPal"}
               </button>
               <button 
                 onClick={() => setStep("calendar")}

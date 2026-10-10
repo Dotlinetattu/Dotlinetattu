@@ -1,7 +1,7 @@
 'use server';
 
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { DEFAULT_WEEKLY_HOURS, normalizeWeeklyHours } from '@/lib/studio-hours';
+import { DEFAULT_WEEKLY_HOURS, getStudioDateTime, normalizeWeeklyHours } from '@/lib/studio-hours';
 import { expirePendingBookingHolds } from '@/lib/payment-holds';
 import { bookingQuote } from '@/lib/pricing';
 
@@ -19,8 +19,14 @@ type BookingInput = {
   placement_url?: string | null;
 };
 
-export async function getBookedSlots() {
-  await expirePendingBookingHolds();
+function isReadOnlyCalendarPreview() {
+  return process.env.NODE_ENV === 'development' && process.env.BOOKING_CALENDAR_PREVIEW === 'true';
+}
+
+async function loadBookedSlots() {
+  // A local preview may read real availability, but must not expire or update
+  // payment holds as a side effect of simply opening the calendar.
+  if (!isReadOnlyCalendarPreview()) await expirePendingBookingHolds();
   // Queries the appointments table after releasing any expired initial payment hold.
   const { data, error } = await supabaseAdmin
     .from('appointments')
@@ -30,10 +36,14 @@ export async function getBookedSlots() {
   if (error) {
     console.error('Error fetching appointments:', error);
     // Fallback: try old bookings table for backwards compatibility
-    const { data: fallback } = await supabaseAdmin
+    const { data: fallback, error: fallbackError } = await supabaseAdmin
       .from('bookings')
       .select('booking_date, booking_time, status')
       .in('status', ['PENDING', 'PAID', 'CONFIRMED']);
+    if (fallbackError) {
+      console.error('Error fetching legacy bookings:', fallbackError);
+      throw new Error('Could not check booking availability.');
+    }
     return (fallback || []).map(b => ({ 
       date: b.booking_date, 
       time: b.booking_time, 
@@ -44,32 +54,49 @@ export async function getBookedSlots() {
   return data || [];
 }
 
-export async function getBlockedDates() {
+async function loadBlockedDates() {
   const { data, error } = await supabaseAdmin
     .from('blocked_dates')
     .select('date, start_time, end_time, reason');
     
   if (error) {
     console.error('Error fetching blocked dates:', error);
-    return [];
+    throw new Error('Could not check blocked dates.');
   }
   return data || [];
 }
 
-export async function getOpenHours() {
+async function loadOpenHours() {
   const { data, error } = await supabaseAdmin
     .from('studio_settings')
     .select('value')
     .eq('key', 'open_hours')
-    .single();
+    .maybeSingle();
     
-  if (error || !data) {
+  if (error) {
+    console.error('Error fetching studio opening hours:', error);
+    throw new Error('Could not check studio opening hours.');
+  }
+  if (!data) {
     return DEFAULT_WEEKLY_HOURS;
   }
   return normalizeWeeklyHours(data.value);
 }
 
+export async function getBookingAvailability() {
+  const [slots, blocked, hours] = await Promise.all([
+    loadBookedSlots(),
+    loadBlockedDates(),
+    loadOpenHours(),
+  ]);
+
+  return { slots, blocked, hours };
+}
+
 export async function createBooking(bookingData: BookingInput) {
+  if (isReadOnlyCalendarPreview()) {
+    throw new Error('Booking submissions are disabled in the local calendar preview.');
+  }
   await expirePendingBookingHolds();
   const quote = bookingQuote(bookingData.type, bookingData.size);
   if (!quote) throw new Error('Choose a valid tattoo size or consultation option.');
@@ -100,6 +127,10 @@ export async function createBooking(bookingData: BookingInput) {
   }
   const requestedStart = (requestedHour * 60) + requestedMinute;
   const requestedEnd = requestedStart + (requestedDuration * 60);
+  const studioNow = getStudioDateTime();
+  if (bookingData.date < studioNow.date || (bookingData.date === studioNow.date && requestedStart <= studioNow.minutes)) {
+    throw new Error('Choose a future booking date and time in Bali.');
+  }
 
   const [{ data: openHoursSetting }, { data: dateBlocks, error: blocksError }] = await Promise.all([
     supabaseAdmin.from('studio_settings').select('value').eq('key', 'open_hours').maybeSingle(),
