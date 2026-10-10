@@ -79,7 +79,7 @@ const STORAGE_KEY = "dotlinetattu_booking_draft";
 const CALENDAR_DAY_STYLES: Record<CalendarDayStatus, string> = {
   checking: "border-border/70 bg-primary text-secondary/50",
   error: "border-border/70 bg-primary text-secondary/50",
-  past: "border-border/40 bg-primary/70 text-secondary/35",
+  past: "border-border/40 bg-primary/70 text-secondary/70 opacity-40",
   closed: "border-border/60 bg-surface/70 text-secondary/45",
   blocked: "border-border/60 bg-surface/70 text-secondary/45",
   "fully-booked": "border-accent/30 bg-accent/5 text-secondary/60",
